@@ -1,0 +1,45 @@
+# ---- 机密：绝对不要提交 ----
+.env
+*.key
+secrets/
+# 本机路径配置（从 settings.example.yaml 复制而来，各人不同）
+config/settings.yaml
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 运行时数据 ----
+data/logs/**
+!data/logs/**/
+!data/logs/**/.gitkeep
+data/cache/**
+!data/cache/**/
+!data/cache/**/.gitkeep
+output/**
+!output/**/
+!output/**/.gitkeep
+*.log
+
+# ---- 生产目录：文本入 Git，媒体文件不入 Git ----
+projects/*/materials/
+projects/*/segments/
+projects/*/final/
+projects/*/.runner.lock
+projects/*/analysis/frames/
+projects/*/analysis/*.png
+projects/*/analysis/*.jpg
+
+# ---- 打包产物与系统文件 ----
+release/
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+scratch/

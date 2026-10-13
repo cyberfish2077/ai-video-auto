@@ -1,0 +1,66 @@
+# ============================================================
+# 全局配置模板：复制为同目录下的 settings.yaml 后按自己机器改路径。
+#   copy config\settings.example.yaml config\settings.yaml
+# 这里只放"非机密"配置；机密（API 密钥）一律放项目根目录的 .env。
+# 路径统一用正斜杠 /，避免 YAML 转义问题。
+# settings.yaml 已被 .gitignore 忽略（各人路径不同，不该进版本库）。
+# ============================================================
+
+project:
+  name: AI_Video_Auto
+  root: D:/AI_Video_Auto
+  timezone: Asia/Shanghai
+
+paths:
+  data: D:/AI_Video_Auto/data
+  logs: D:/AI_Video_Auto/data/logs
+  cache: D:/AI_Video_Auto/data/cache
+  # 生产目录：每一次视频制作一个子目录
+  #   剧本/提示词/项目定义/台账/合成记录 -> 入 Git（版本化）
+  #   素材图、分段视频、成片            -> 本地保存，不入 Git（体积大）
+  projects: D:/AI_Video_Auto/projects
+  # 早期实验记录（可选）
+  legacy_projects: D:/AI_Video_Auto/data/projects
+  # 工作流副本目录（见 references/工作流接入说明.md）
+  workflows: D:/AI_Video_Auto/workflows
+
+python:
+  # 项目自己使用的解释器版本区间（与 ComfyUI 无关）
+  required: ">=3.12,<3.14"
+  venv_dir: D:/AI_Video_Auto/.venv
+
+comfyui:
+  base_url: http://127.0.0.1:8188
+  # ↓↓↓ 改成你自己的 ComfyUI 安装位置 ↓↓↓
+  install_dir: D:/ComfyUI
+  comfy_dir: D:/ComfyUI/ComfyUI
+  models_root: D:/ComfyUI/ComfyUI/models
+  output_dir: D:/ComfyUI/ComfyUI/output
+  input_dir: D:/ComfyUI/ComfyUI/input
+  # 主力工作流的受控副本（放在项目 workflows/ 目录内）
+  main_workflow: workflows/<你的主力工作流>.json
+  # 单次任务的等待上限（秒）
+  job_timeout_seconds: 3600
+  # 提交前是否要求 ComfyUI 队列为空
+  require_idle_queue: true
+
+ffmpeg:
+  ffmpeg: C:/ffmpeg/bin/ffmpeg.exe
+  ffprobe: C:/ffmpeg/bin/ffprobe.exe
+  # 成片默认编码参数
+  video_codec: libx264
+  audio_codec: aac
+  crf: 18
+  preset: medium
+
+deepseek:
+  base_url: https://api.deepseek.com
+  # 形如 deepseek-flash / deepseek-v4-pro，以账号实际可用模型为准
+  model: deepseek-flash
+  timeout_seconds: 120
+  max_retries: 3
+
+logging:
+  level: INFO
+  # 日志文件按天切分，保留天数
+  keep_days: 30

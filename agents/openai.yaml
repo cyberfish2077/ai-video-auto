@@ -1,0 +1,5 @@
+interface:
+  display_name: "AI Video Auto（讲稿→长视频）"
+  short_description: "用本地 ComfyUI 把中文讲稿做成 2 分钟以上的长视频"
+  brand_color: "#3B82F6"
+  default_prompt: "Use $ai-video-auto to turn my brief into a finished long video."

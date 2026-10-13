@@ -1,0 +1,14 @@
+# 统一换行符：仓库内统一存 LF，检出到 Windows 工作区时转 CRLF
+* text=auto eol=crlf
+
+# 二进制文件不做换行转换、不参与文本 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.mp4 binary
+*.mov binary
+*.mp3 binary
+*.wav binary
+*.safetensors binary
+*.gguf binary

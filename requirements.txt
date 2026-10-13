@@ -1,0 +1,9 @@
+# 本项目虚拟环境（.venv）的依赖清单。
+# 安装：.venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# 说明：只装"系统本身需要"的库；与 ComfyUI 相关的依赖一律不装到这里，
+# 以免影响 ComfyUI 的既有环境。
+
+PyYAML>=6.0.2          # 读取 config/settings.yaml
+python-dotenv>=1.0.1   # 读取项目根目录的 .env
+requests>=2.32.3       # 调用 DeepSeek API 与 ComfyUI API

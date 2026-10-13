@@ -1,0 +1,150 @@
+# ============================================================
+# 工作流的“参数改写点”登记表
+# ------------------------------------------------------------
+# 记录每个工作流里：哪个节点、哪个控件对应什么业务含义。
+# node 是工作流文件里的节点 id（工作流改动后需重新核对）。
+# 核对方法：
+#   D:\AI_Video_Auto\.venv\Scripts\python.exe scripts\inspect_workflow.py
+# ============================================================
+
+t2v_4step:
+  label: MiniMax H3 文生视频（4 步加速）
+  file: workflows/MiniMax_H3_T2V _4步加速.json
+  archive_subdir: segments
+  # 该工作流固定使用的文本编码器（升级后原 int8_convrot 版已移除，改用 nvfp4_awq）
+  defaults:
+    clip_name: "MM-H3\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+  # 用途：讲稿分段后的每个片段，都靠这份工作流生成视频
+  overrides:
+    # 2026-10-12 环境变更：工作流里写的 qwen3vl_32b_minimax_h3_int8_convrot 已随升级移除，
+    # 现用 nvfp4_awq 版（依据：现有 40 份工作流都引用它，是当前实际在用的编码器）。
+    clip_name:        { node: 130, input: clip_name }
+    prompt:           { node: 159, input: value }            # 用户提示词（PrimitiveStringMultiline）
+    # 双保险：把提示词开关的 on_true 也设成同一个提示词。
+    # 该开关的 boolean 取值为 false 时走 on_false（节点 159），为 true 时走 on_true；
+    # 两边都写同一份提示词，就不怕开关状态解析出错而静默用错内容。
+    prompt_switch:    { node: 158, input: on_true, same_as: prompt }
+    duration_seconds: { node: 135, input: value }            # 目标时长（秒），帧数由 ComfyMathExpression 自动换算
+    width:            { node: 165, input: value }            # 宽（PrimitiveNode）
+    height:           { node: 166, input: value }            # 高（PrimitiveNode）
+    seed:             { node: 131, input: noise_seed }       # 随机种子（RandomNoise）
+    output_prefix:    { node: 137, input: filename_prefix }  # 输出文件名前缀（VHS_VideoCombine）
+  notes:
+    - 节点 158 是提示词开关；节点 157「Enable Prompt Enhance」为 false 时使用节点 159 的原文。
+    - 节点 160（Mie 的提示词生成器，需 MiniMax LLM 密钥）处于跳过状态，本流程不使用。
+    - 节点 161（Fast Groups Bypasser）是旧版 rgthree 界面开关，无连线，转换时自动忽略。
+    - 视频与音频节点均为跳过状态：这是纯文生视频，不需要外部素材。
+
+# ============================================================
+# 主力工作流：多参考图生视频（9 张参考图）
+# 说明：图片槽位改写点已登记；每个片段用哪几张图、怎么在提示词里声明，
+#       等"素材准备"环节（DeepSeek 剧本 + Qwen-Image 出图）落实后再接入批量任务。
+# ============================================================
+t8bridge_9ref:
+  label: MiniMax H3 多参考生视频（黑科技加速双采 self-lift 9 图 T8bridge）
+  file: workflows/黑科技加速双采-self-lift工作流9图_T8bridge.json
+  archive_subdir: segments
+  # 该工作流固定使用的文本编码器（同上）
+  defaults:
+    clip_name: "MM-H3\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    # ResolutionSelector：16:9 + 步长 32 + 0.9MP → 精确 1280x736
+    megapixels: 0.9
+  overrides:
+    clip_name:        { node: 128, input: clip_name }        # 文本编码器
+    prompt:           { node: 232, input: value }            # 中文时间轴模板提示词（PrimitiveStringMultiline）
+    # 分辨率：改 ResolutionSelector 的 megapixels（工作流自带说明表：
+    # 0.9 + 16:9 + 步长 32 → 1280x736，正是用户要的尺寸）
+    megapixels:       { node: 115, input: megapixels }
+    duration_seconds: { node: 132, input: value }            # 目标时长（秒），帧数由节点 131/147 自动换算
+    seed:             { node: 235, input: seed }             # SelfLiftH3Sampler 的种子
+    output_prefix:    { node: 180, input: filename_prefix }  # 输出文件名前缀
+    # 9 个参考图槽位，顺序与提示词里的“@图片N”一一对应
+    ref_image_1:      { node: 150, input: image }
+    ref_image_2:      { node: 164, input: image }
+    ref_image_3:      { node: 238, input: image }
+    ref_image_4:      { node: 275, input: image }
+    ref_image_5:      { node: 276, input: image }
+    ref_image_6:      { node: 278, input: image }
+    ref_image_7:      { node: 279, input: image }
+    ref_image_8:      { node: 280, input: image }
+    ref_image_9:      { node: 281, input: image }
+  notes:
+    - 节点 136 是核心的 MiniMaxH3ReferenceToVideo，宽/高/帧数与 ref_image_size 目前用工作流自带值（1344x768 / 124 帧 / max）。
+    - 3 个 VHS_LoadVideo 与 3 个 LoadAudio 都是跳过状态：只吃图片，不吃视频和音频。
+    - 分辨率由节点 115 ResolutionSelector（16:9 / 1 megapixel / multiple=32）决定，改分辨率要同时看节点 136 的宽高。
+    - 提示词模板写法（来自用户在用的实例）：第一行声明各图角色，
+      如 @图片1角色“萧云”，@图片5image“分镜图名”；随后是风格行、按秒分段的分镜行、【声音】与负面词。
+
+# ============================================================
+# 首尾帧生视频（保证片段之间首尾相接）
+# 适用：想要"上一段结尾 = 下一段开头"的严丝合缝衔接时
+# ============================================================
+fl2v_4step:
+  label: MiniMax H3 首尾帧生视频（4 步加速）
+  file: workflows/MiniMax_H3_FL2V_4步加速.json
+  archive_subdir: segments
+  defaults:
+    clip_name: "MM-H3\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    unet_name: "MM-H3\\minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+    megapixels: 0.9    # 首尾帧缩放到 1280x736（16:9、步长 32）
+  overrides:
+    clip_name:        { node: 130, input: clip_name }
+    unet_name:        { node: 129, input: unet_name }
+    # 两个 ImageScaleToTotalPixels 分别处理首帧与尾帧，都要改
+    megapixels:       [ { node: 119, input: megapixels }, { node: 154, input: megapixels } ]
+    first_frame:      { node: 114, input: image }
+    last_frame:       { node: 153, input: image }
+    prompt:           { node: 159, input: value }
+    prompt_switch:    { node: 158, input: on_true, same_as: prompt }
+    duration_seconds: { node: 135, input: value }
+    seed:             { node: 131, input: noise_seed }
+    output_prefix:    { node: 137, input: filename_prefix }
+  notes:
+    - 该工作流的节点 133 有 first_frame / last_frame 两个可选输入，正是首尾帧控制。
+    - 分辨率由首尾帧图片经 ImageScaleToTotalPixels 决定（area + multiple=32），
+      所以首尾帧图要按目标画幅准备（本项目的关键帧统一 16:9）。
+    - 原工作流里的 UNET 路径写成 MiniMax-H3\...，实际目录是 MM-H3\...，已用 defaults 修正。
+
+# ============================================================
+# 素材生成：Qwen-Image 2.1 文生图（角色设定图 / 分镜图）
+# ============================================================
+qwen_t2i:
+  label: Qwen-Image 2.1 文生图（出角色三视图与分镜图）
+  file: workflows/Qwen-Image-2.1-文生图.json
+  archive_subdir: materials
+  overrides:
+    prompt:          { node: 484, input: prompt }
+    negative_prompt: { node: 484, input: negative_prompt }
+    seed:            { node: 489, input: seed }
+    aspect_ratio:    { node: 13,  input: aspect_ratio }   # 例：16:9 (Widescreen) / 4:3 (Standard) / 1:1 (Square)
+    megapixels:      { node: 13,  input: megapixels }     # 1 ≈ 约 100 万像素
+    output_prefix:   { node: 461, input: filename_prefix }
+  notes:
+    - 产物是 PNG 图片，不是视频；程序只记录路径与大小，不做视频解码校验。
+    - 尺寸由节点 13 ResolutionSelector 决定（宽高会连到节点 487 EmptyLatentImage）。
+    - 节点 484 的 resolution 保持工作流默认 1024：该输入语义未在文档中说明，遵循作者原值，不猜测。
+    - 生成的图片要放进 ComfyUI 的 input 目录，H3 工作流的 LoadImage 才能引用。
+
+# ============================================================
+# 背景音乐生成（Ace-Step 1.5）：做一条贯穿全片的 BGM
+# ============================================================
+music_ace:
+  label: Ace-Step 1.5 音乐生成（贯穿全片的 BGM）
+  file: workflows/Ace-Step-1.5-音乐创作.json
+  archive_subdir: music
+  defaults:
+    # 模型实际放在 checkpoints 根目录，而工作流里写的是带子目录的路径 → 这里修正
+    ckpt_name: "ace_step_1.5_turbo_aio.safetensors"
+  overrides:
+    ckpt_name:        { node: 97, input: ckpt_name }
+    prompt:           { node: 94, input: tags }            # 音乐描述（乐器/情绪/速度/发展）
+    lyrics:           { node: 94, input: lyrics }          # 留空 = 纯器乐
+    duration_seconds: { node: 94, input: duration }
+    latent_seconds:   { node: 98, input: seconds }
+    bpm:              { node: 94, input: bpm }
+    seed:             { node: 94, input: seed }
+    sampler_seed:     { node: 3, input: seed }
+    output_prefix:    { node: 104, input: filename_prefix }
+  notes:
+    - 纯器乐 BGM：lyrics 留空；时长建议比成片长 10-15 秒，方便片尾淡出。
+    - 产物是 mp3，交给 compose 用 --bgm 铺满全片（分段本身已要求不生成 BGM）。
