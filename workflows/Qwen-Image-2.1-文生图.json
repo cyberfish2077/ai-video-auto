@@ -1,8 +1,8 @@
 {
   "id": "21b92c53-b254-4169-8359-320e3a6ed47c",
   "revision": 0,
-  "last_node_id": 499,
-  "last_link_id": 732,
+  "last_node_id": 500,
+  "last_link_id": 733,
   "nodes": [
     {
       "id": 13,
@@ -614,7 +614,7 @@
           "localized_name": "model",
           "name": "model",
           "type": "MODEL",
-          "link": 722
+          "link": 733
         },
         {
           "localized_name": "positive",
@@ -855,6 +855,56 @@
       },
       "color": "transparent",
       "bgcolor": "transparent"
+    },
+    {
+      "id": 500,
+      "type": "ModelAttentionBackend",
+      "pos": [
+        1542.286274230842,
+        2610.8504169311896
+      ],
+      "size": [
+        294.53,
+        86
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 722
+        },
+        {
+          "label": "attention",
+          "name": "attention",
+          "type": "COMBO",
+          "widget": {
+            "name": "attention"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            733
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "Node name for S&R": "ModelAttentionBackend"
+      },
+      "widgets_values": [
+        "comfy kitchen attention"
+      ]
     }
   ],
   "links": [
@@ -910,7 +960,7 @@
       722,
       495,
       0,
-      489,
+      500,
       0,
       "MODEL"
     ],
@@ -953,6 +1003,14 @@
       461,
       0,
       "IMAGE"
+    ],
+    [
+      733,
+      500,
+      0,
+      489,
+      0,
+      "MODEL"
     ]
   ],
   "groups": [

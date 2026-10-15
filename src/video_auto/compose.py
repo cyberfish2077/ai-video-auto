@@ -8,6 +8,9 @@
   接缝最柔；代价是要重编码视频（比直拷慢），适合分段之间内容有轻微跳变时；
 * 可选**贯穿全片的背景音乐**（``bgm``）：分段各自生成的音乐会在此接缝处断掉。
   做法是提示词里要求分段**不生成 BGM**，拼接后把一条完整的 BGM 铺满整片。
+* 可选**旁白轨**：逐条配音按各自镜头的时间点摆好（``plan_narration``），
+  允许多念出来的部分延续到后面的镜头里；混音时用 sidechaincompress 让环境声
+  在旁白说话时自动让路（ducking），保证听清。
 * 拼接前先校验各段规格一致（编码/分辨率/帧率/采样率），不一致直接报错，
   而不是产出一条画面忽大忽小、音画不同步的成片；
 * 默认**不覆盖已有成片**。
@@ -228,6 +231,17 @@ def build_dissolve_command(
     return cmd
 
 
+def normalized_tmp_path(tmp_dir: Path, index: int, src: Path) -> Path:
+    """规范化后的临时文件路径：**必须逐段唯一**。
+
+    2026-10-15 实测踩过这个坑：原来用 ``norm_{src.stem}.mp4`` 命名，而"沿用上一部片"的片段
+    与本片片段**文件名主干相同**（两边的 ``s2_00001-audio.mp4``），于是后写的覆盖先写的，
+    concat 清单里同一个文件出现两次——沿用段的第 2、3 个镜头被本片的同号段顶掉，
+    成片开头因此重播了本片的 s2／s3。加上序号前缀后，路径与"第几段"绑死，不再可能撞名。
+    """
+    return tmp_dir / f"norm_{index:02d}_{src.stem}.mp4"
+
+
 def build_list_file(entries: list[Path]) -> str:
     """生成 concat 清单内容（路径里的单引号需要转义）。"""
     lines = []
@@ -235,6 +249,158 @@ def build_list_file(entries: list[Path]) -> str:
         text = str(path).replace("\\", "/").replace("'", "'\\''")
         lines.append(f"file '{text}'")
     return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+# 旁白（配音）时间轴：把逐条配音摆到各自镜头的时间点上
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NarrationPlacement:
+    """一条旁白最终摆在哪里、要不要加速。"""
+
+    index: int
+    shot_start: float      # 该镜头在成片里的起始时间
+    start: float           # 实际摆放时间（cascade 模式下可能被推后）
+    tempo: float           # 速度倍率（1.0 = 不加速）
+    duration: float        # 原始时长
+
+    @property
+    def final_duration(self) -> float:
+        return self.duration / self.tempo
+
+    @property
+    def drift(self) -> float:
+        """相对它自己镜头起点的延迟（越大越"跑题"）。"""
+        return self.start - self.shot_start
+
+
+def plan_narration(
+    shot_starts: list[float],
+    durations: list[float],
+    *,
+    total_seconds: float,
+    gap: float = 0.25,
+    mode: str = "fit",
+    max_tempo: float = 1.20,
+) -> list[NarrationPlacement]:
+    """规划每条旁白的位置。
+
+    两种策略（用户 2026-10-13 选择"旁白跨镜头延续"，即允许旁白念到下一个镜头里）：
+
+    * ``fit``：旁白按自己镜头的起点开口；若它会盖住下一条旁白的开口时间，
+      先给它做**轻度加速**（不超过 ``max_tempo``）把时间让出来，还是放不下才把下一条推后；
+    * ``cascade``：一律不加速，念完为止，下一条往后顺延。
+
+    无论哪种，**两条旁白都不会同时说话** —— 这是硬要求，重叠会让人听不清。
+    """
+    placements: list[NarrationPlacement] = []
+    previous_end = -1e9
+    for index, (shot_start, duration) in enumerate(zip(shot_starts, durations)):
+        next_start = shot_starts[index + 1] if index + 1 < len(shot_starts) else total_seconds
+        start = max(shot_start, previous_end + gap)
+        available = max(next_start, start + 0.1) - start - gap
+        tempo = 1.0
+        if mode == "fit" and duration > available > 0:
+            tempo = min(max_tempo, duration / available)
+        final = duration / tempo
+        placements.append(NarrationPlacement(index=index, shot_start=shot_start, start=start,
+                                            tempo=tempo, duration=duration))
+        previous_end = start + final
+    return placements
+
+
+def build_narration_track_command(
+    ffmpeg: Path,
+    clips: list[tuple[float, float, Path]],
+    output: Path,
+    *,
+    total_seconds: float,
+    sample_rate: int = 32000,
+) -> list[str]:
+    """把逐条旁白拼成一条完整的旁白轨（其余时间留白）。
+
+    ``clips`` 里每项是 ``(摆放时间, 速度倍率, 音频文件)``。
+    输出未压缩 WAV，留给最后一步与画面声混音（避免二次压缩）。
+    """
+    if not clips:
+        raise ComposeError("旁白清单是空的，无法生成旁白轨。")
+    cmd = [str(ffmpeg), "-hide_banner", "-nostdin", "-y"]
+    for _start, _tempo, path in clips:
+        cmd += ["-i", str(path)]
+    parts: list[str] = []
+    labels: list[str] = []
+    for index, (start, tempo, _path) in enumerate(clips):
+        chain = f"[{index}:a]aresample={sample_rate}"
+        if abs(tempo - 1.0) > 1e-3:
+            # atempo 一次只接受 0.5~2.0，本项目倍率都很小，单次足够
+            chain += f",atempo={tempo:.4f}"
+        chain += f",adelay={int(round(start * 1000))}|{int(round(start * 1000))}[n{index}]"
+        parts.append(chain)
+        labels.append(f"[n{index}]")
+    parts.append(
+        "".join(labels) +
+        f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0:normalize=0,"
+        f"apad,atrim=0:{total_seconds:.3f}[vo]"
+    )
+    cmd += [
+        "-filter_complex", ";".join(parts),
+        "-map", "[vo]",
+        "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "2",
+        str(output),
+    ]
+    return cmd
+
+
+def build_narration_mix_command(
+    ffmpeg: Path,
+    video: Path,
+    narration: Path,
+    output: Path,
+    *,
+    ambience_db: float = -3.0,
+    voice_gain_db: float = 0.0,
+    duck: bool = True,
+    audio_bitrate: str = "192k",
+) -> list[str]:
+    """把旁白轨混进成片：压低环境声（或做 ducking），旁白保持清晰。
+
+    ``duck=True`` 时用 sidechaincompress 做"旁白一响，环境声自动让路"，
+    旁白间隙环境声回到原音量；否则只把环境声整体压低 ``ambience_db`` 分贝。
+
+    ``voice_gain_db`` 用来补足 TTS 与 H3 环境声之间的电平差（实测旁白峰值 -7.3 dB、
+    环境声峰值 -0.6 dB，不改就会被盖住）。
+    """
+    voice = f"[1:a]aresample=32000"
+    if abs(voice_gain_db) > 1e-3:
+        voice += f",volume={voice_gain_db}dB"
+    voice += "[vo]"
+    if duck:
+        filters = (
+            f"[0:a]aresample=32000,volume={ambience_db}dB[amb];"
+            f"{voice};"
+            f"[vo]asplit=2[vo_main][vo_key];"
+            f"[amb][vo_key]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[amb_duck];"
+            f"[amb_duck][vo_main]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix];"
+            f"[mix]alimiter=limit=0.95[aout]"
+        )
+    else:
+        filters = (
+            f"[0:a]aresample=32000,volume={ambience_db}dB[amb];"
+            f"{voice};"
+            f"[amb][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix];"
+            f"[mix]alimiter=limit=0.95[aout]"
+        )
+    return [
+        str(ffmpeg), "-hide_banner", "-nostdin", "-y",
+        "-i", str(video),
+        "-i", str(narration),
+        "-filter_complex", filters,
+        "-map", "0:v", "-map", "[aout]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", audio_bitrate,
+        "-movflags", "+faststart", str(output),
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -250,6 +416,10 @@ def _run(cmd: list[str], *, timeout: int, what: str) -> None:
             f"{what}失败。\n{(proc.stderr or '').strip()[-500:]}\n"
             f"解决办法：确认 config/settings.yaml 里的 ffmpeg 路径正确，且各分段规格一致。"
         )
+
+
+#: 公开别名：别的脚本（如 scripts/mix_narration.py）需要执行 ffmpeg 命令
+run_ffmpeg = _run
 
 
 def compose(
@@ -318,8 +488,8 @@ def compose(
             )
         else:
             normalized: list[Path] = []
-            for info in infos:
-                dst = tmp_dir / f"norm_{info.path.stem}.mp4"
+            for index, info in enumerate(infos, start=1):
+                dst = normalized_tmp_path(tmp_dir, index, info.path)
                 log.info("处理音轨：%s（淡入淡出 %.0f 毫秒）", info.path.name, fade_seconds * 1000)
                 _run(
                     build_normalize_command(ffmpeg, info.path, dst,

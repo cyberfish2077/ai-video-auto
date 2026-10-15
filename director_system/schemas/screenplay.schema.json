@@ -1,0 +1,391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "screenplay.schema.json",
+  "title": "正式剧本（阶段 3）",
+  "description": "DeepSeek 按 prompts/03_screenplay.md 从已批准大纲写出；写入 projects/<film_id>/screenplay.json。本阶段不产出 H3 提示词。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "concept_id",
+    "title",
+    "logline",
+    "total_seconds",
+    "duration_intent",
+    "dialogue_policy_note",
+    "screenplay_text",
+    "scenes",
+    "visual_event_inventory",
+    "continuity_bible",
+    "setup_payoff",
+    "high_risk_scenes",
+    "review_checklist"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "type": "object",
+      "description": "修订信息（第一版没有这个字段；按评审必修项返修时必须有）。",
+      "required": [
+        "revision",
+        "applied_fixes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "applied_fixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "unchanged_note": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "film_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "concept_id": {
+      "type": "string",
+      "pattern": "^c[1-9]$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 2
+    },
+    "logline": {
+      "type": "string",
+      "minLength": 10
+    },
+    "total_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "inherited_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "开篇沿用既有素材的秒数（本片不重新生成的部分）。有它时：total_seconds = 各场之和 + inherited_seconds，沿用段不写进场次表（它不拍）。"
+    },
+    "duration_intent": {
+      "type": "string",
+      "minLength": 20,
+      "description": "各场理想时长的分配依据（按叙事任务，不按合法帧数）。这里写的是**创作意图**：哪场该长、哪场该短、为什么。分段与帧数在分镜阶段再映射。"
+    },
+    "dialogue_policy_note": {
+      "type": "string",
+      "minLength": 10,
+      "description": "台词与字幕风险的说明：本工作流会把台词烧成画面字幕且负面词无效，所以**画面提示词里不出现台词文字**；台词/旁白按剧本写，交由后期配音实现（见 brief 的 dialogue_policy）。"
+    },
+    "screenplay_text": {
+      "type": "string",
+      "minLength": 200,
+      "description": "人类可读的剧本正文：场次标题 + 可见动作 + 台词 + 声音提示。"
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": [
+          "scene_id",
+          "heading",
+          "dramatic_engine",
+          "dramatic_purpose",
+          "immediate_objective",
+          "new_information",
+          "obstacle",
+          "decision",
+          "end_state_change",
+          "estimated_seconds",
+          "action",
+          "dialogue",
+          "sound"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^SC[0-9]{2}$"
+          },
+          "heading": {
+            "type": "string",
+            "minLength": 4
+          },
+          "dramatic_engine": {
+            "type": "string",
+            "enum": [
+              "情绪对峙",
+              "信息差",
+              "权力博弈",
+              "抉择",
+              "悬念",
+              "关系界定",
+              "仪式/规则",
+              "喜剧",
+              "温情"
+            ]
+          },
+          "secondary_engine": {
+            "type": "string",
+            "enum": [
+              "情绪对峙",
+              "信息差",
+              "权力博弈",
+              "抉择",
+              "悬念",
+              "关系界定",
+              "仪式/规则",
+              "喜剧",
+              "温情"
+            ]
+          },
+          "dramatic_purpose": {
+            "type": "string",
+            "minLength": 5
+          },
+          "immediate_objective": {
+            "type": "string",
+            "minLength": 2
+          },
+          "new_information": {
+            "type": "string",
+            "minLength": 2
+          },
+          "obstacle": {
+            "type": "string",
+            "minLength": 2
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 2
+          },
+          "end_state_change": {
+            "type": "string",
+            "minLength": 5
+          },
+          "estimated_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "action": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 5
+            },
+            "description": "按时间顺序的可见动作（摄影机能拍到的，不写心理活动）。"
+          },
+          "dialogue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "speaker",
+                "line"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "speaker": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "line": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "delivery_note": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "本场台词与旁白（允许写；旁白把 speaker 写成「旁白」）。台词不会进画面提示词——它由后期配音（TTS）实现，所以请写清说话人、台词本体与声音提示。确实没有就给空数组。"
+          },
+          "sound": {
+            "type": "string",
+            "minLength": 2
+          }
+        }
+      }
+    },
+    "visual_event_inventory": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "scene_id",
+          "event",
+          "why_memorable"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^SC[0-9]{2}$"
+          },
+          "event": {
+            "type": "string",
+            "minLength": 5
+          },
+          "why_memorable": {
+            "type": "string",
+            "minLength": 5
+          }
+        }
+      }
+    },
+    "continuity_bible": {
+      "type": "object",
+      "required": [
+        "characters",
+        "geography",
+        "props",
+        "rules"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "characters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "appearance",
+              "wardrobe",
+              "role"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 2
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "appearance": {
+                "type": "string",
+                "minLength": 5
+              },
+              "wardrobe": {
+                "type": "string",
+                "minLength": 5
+              },
+              "role": {
+                "type": "string",
+                "minLength": 2
+              }
+            }
+          }
+        },
+        "geography": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          },
+          "description": "这个世界观里必须全程一致的规则（例如谁在什么条件下变头）。"
+        }
+      }
+    },
+    "setup_payoff": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "setup",
+          "payoff",
+          "scenes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "setup": {
+            "type": "string",
+            "minLength": 5
+          },
+          "payoff": {
+            "type": "string",
+            "minLength": 5
+          },
+          "scenes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "high_risk_scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scene_id",
+          "risk",
+          "mitigation"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^SC[0-9]{2}$"
+          },
+          "risk": {
+            "type": "string",
+            "minLength": 5
+          },
+          "mitigation": {
+            "type": "string",
+            "minLength": 5
+          }
+        }
+      }
+    },
+    "review_checklist": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 5
+      },
+      "description": "给人看的审核清单：批这个剧本之前必须逐条确认的事情。"
+    },
+    "equal_length_justification": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "当各场理想时长完全相同（三段及以上）时必填：这个故事为什么需要均匀节奏。写不出理由就是错误（校验会报警）。"
+    }
+  }
+}

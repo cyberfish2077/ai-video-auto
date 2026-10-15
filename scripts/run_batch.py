@@ -56,6 +56,33 @@ def project_dir(settings, name: str) -> Path:
     return settings.path("paths.projects") / name
 
 
+def _carry_progress(previous: "task_mod.Project | None",
+                    segments: list["task_mod.Segment"]) -> int:
+    """把旧台账里 done/reused 片段的进度搬进新台账（按 id 匹配）。
+
+    用途：改了定义（提示词、参考图、时长）要重建台账，但已经生成好的片段不想重跑。
+    只搬"已经出结果"的状态，pending/failed 一律按新的来。
+    """
+    if previous is None:
+        return 0
+    old = {seg.id: seg for seg in previous.segments}
+    kept = 0
+    for seg in segments:
+        source = old.get(seg.id)
+        if source is None or source.status not in (task_mod.STATUS_DONE, task_mod.STATUS_REUSED):
+            continue
+        seg.status = source.status
+        seg.output_path = source.output_path
+        seg.prompt_id = source.prompt_id
+        seg.attempts = source.attempts
+        seg.elapsed_seconds = source.elapsed_seconds
+        seg.fingerprint = source.fingerprint
+        seg.updated_at = source.updated_at
+        seg.history = list(source.history)
+        kept += 1
+    return kept
+
+
 def cmd_create(args, settings, log) -> int:
     if args.from_json:
         return _create_from_json(args, settings, log)
@@ -110,10 +137,11 @@ def _create_from_json(args, settings, log) -> int:
 
         {
           "name": "batch-01",
-          "target": "t2v_4step",
-          "defaults": {"duration_seconds": 5, "width": 960, "height": 544},
+          "target": "t8bridge_9ref",
+          "defaults": {"duration_seconds": 8},
           "segments": [
-            {"id": "seg-01", "prompt_file": "data/projects/smoke-01/prompt.txt", "seed": 1234},
+            {"id": "seg-01", "prompt_file": "projects/batch-01/prompts/seg-01.txt", "seed": 1234,
+             "images": ["char-a.png", "board-01.png"]},
             {"id": "seg-02", "prompt": "直接写提示词", "seed": 20261012, "duration_seconds": 6}
           ]
         }
@@ -164,6 +192,7 @@ def _create_from_json(args, settings, log) -> int:
             first_frame=str(item["first_frame"]) if item.get("first_frame") else None,
             last_frame=str(item["last_frame"]) if item.get("last_frame") else None,
             chain_prev=str(item["chain_prev"]) if item.get("chain_prev") else None,
+            extra=dict(item.get("extra") or {}) or None,
         ))
     if not segments:
         log.error("JSON 里没有 segments")
@@ -171,7 +200,7 @@ def _create_from_json(args, settings, log) -> int:
 
     project = task_mod.Project(
         name=str(name),
-        target=args.target or str(data.get("target") or "t2v_4step"),
+        target=args.target or str(data.get("target") or "t8bridge_9ref"),
         defaults=defaults,
         segments=segments,
     )
@@ -179,6 +208,9 @@ def _create_from_json(args, settings, log) -> int:
     if store.exists() and not args.force:
         log.error("项目已存在：%s（要重建请加 --force）", store.path)
         return 2
+    if args.keep_progress and store.exists():
+        kept = _carry_progress(store.load(), segments)
+        log.info("--keep-progress：从旧台账搬回 %d 个已完成片段的进度（不会重跑）", kept)
     store.save(project)
     log.info("已创建项目 %s：%d 个片段 -> %s", project.name, len(segments), store.path)
     print()
@@ -401,8 +433,33 @@ def _load_runtime(args, settings, log):
         store=store, index=index, output_dir=settings.path("comfyui.output_dir"),
         archive_root=archive_root, ffprobe=settings.path("ffmpeg.ffprobe"), logger=log,
         ffmpeg=settings.path("ffmpeg.ffmpeg"), input_dir=settings.path("comfyui.input_dir"),
+        projects_root=settings.path("paths.projects"),
+        auto_sync_images=not getattr(args, "no_auto_sync", False),
     )
     return project, store, runner
+
+
+def _warn_unused_overrides(project, runner, log) -> list[str]:
+    """检查工作流登记表里的改写键是否真被台账命中。
+
+    2026-10-13 实测踩过一个**静默失效**的坑：TTS 登记表把业务键写成 ``text``，
+    而台账提供的是 ``prompt``，于是中文台词根本没进模型，生成出来的是工作流自带的
+    示例台词——不报错、产物照常、时长看起来也"正常"，只有对照文本才会发现。
+    这里把"写了却从没出现过的键"报出来，让人立刻看到键名写错。
+    """
+    target_cfg = runner.target_cfg or {}
+    declared = set((target_cfg.get("overrides") or {}).keys())
+    used: set[str] = set()
+    for seg in project.segments:
+        used |= set(runner.values_for(project, seg))
+    # output_prefix 由任务管理器在提交前注入，不属于台账字段
+    unused = sorted(declared - used - {"output_prefix"})
+    if unused:
+        log.warning(
+            "工作流 %s 的登记表里有 %d 个改写键在台账里从未出现，可能是键名写错"
+            "（不会报错，只会静默不生效）：%s",
+            project.target, len(unused), "、".join(unused))
+    return unused
 
 
 def cmd_plan_or_run(args, settings, log, *, dry_run: bool) -> int:
@@ -410,6 +467,18 @@ def cmd_plan_or_run(args, settings, log, *, dry_run: bool) -> int:
     if runtime is None:
         return 2
     project, store, runner = runtime
+    _warn_unused_overrides(project, runner, log)
+    if args.id:
+        # 只跑指定片段（逗号分隔）：小样验收、单个失败片段补跑时用，避免整批重跑。
+        # 注意：过滤是"本次只跑这些"，**不写回台账**（写回会把其它片段抹掉）。
+        wanted = [piece.strip() for piece in str(args.id).split(",") if piece.strip()]
+        known = {seg.id for seg in project.segments}
+        unknown = [one for one in wanted if one not in known]
+        if unknown:
+            log.error("--id 里的这些片段不存在：%s\n台账里现有：%s",
+                      "、".join(unknown), "、".join(sorted(known)))
+            return 2
+        log.info("只处理指定片段（台账其余片段保持不动）：%s", "、".join(wanted))
     store.acquire_lock()
     try:
         running, pending = runner.client.queue_state()
@@ -423,6 +492,7 @@ def cmd_plan_or_run(args, settings, log, *, dry_run: bool) -> int:
             reuse_existing=not args.no_reuse,
             stop_on_error=args.stop_on_error,
             dry_run=dry_run,
+            only=(wanted if args.id else None),
         )
     finally:
         store.release_lock()
@@ -531,11 +601,15 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=544)
     parser.add_argument("--force", action="store_true", help="create 时覆盖已有台账")
+    parser.add_argument("--keep-progress", action="store_true",
+                        help="create --force 时保留旧台账里已完成片段的进度（不重跑它们）")
     parser.add_argument("--max-attempts", type=int, default=3, help="单片段最大尝试次数")
     parser.add_argument("--retry-backoff", type=float, default=10.0, help="重试基础退避秒数")
     parser.add_argument("--max-wait", type=int, help="单片段最长等待秒数")
     parser.add_argument("--no-reuse", action="store_true", help="关闭去重复用，强制重新生成")
     parser.add_argument("--stop-on-error", action="store_true", help="某个片段失败就停止后续")
+    parser.add_argument("--no-auto-sync", action="store_true",
+                        help="关闭「提交前自动把参考图补进 ComfyUI input」（默认开着）")
     parser.add_argument("--reason", help="regen 时写进台账的原因说明（便于日后追溯）")
     parser.add_argument("--plan", action="store_true",
                         help="regen 时只演练，不改台账、不动文件")

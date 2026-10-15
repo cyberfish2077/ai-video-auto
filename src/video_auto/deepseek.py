@@ -38,6 +38,10 @@ class DeepSeekClient:
         self.timeout = int(self.settings.get("deepseek.timeout_seconds", 120))
         self.retries = max(1, int(self.settings.get("deepseek.max_retries", 3)))
         self.api_key = api_key or cfg.get_secret("DEEPSEEK_API_KEY")
+        #: 上一次调用的收尾原因与用量。**只用于诊断**（判断回复是不是被 max_tokens 截断），
+        #: 不参与任何业务判断；取不到时保持 None / 空字典。
+        self.last_finish_reason: str | None = None
+        self.last_usage: dict[str, Any] = {}
 
     # ---------------- 基础 ----------------
 
@@ -94,7 +98,10 @@ class DeepSeekClient:
                     choices = data.get("choices") or []
                     if not choices:
                         raise DeepSeekError(f"接口没有返回内容：{str(data)[:300]}")
-                    return str(choices[0].get("message", {}).get("content", ""))
+                    choice = choices[0]
+                    self.last_finish_reason = choice.get("finish_reason")
+                    self.last_usage = data.get("usage") or {}
+                    return str(choice.get("message", {}).get("content", ""))
                 if resp.status_code in (429, 500, 503) and attempt < self.retries:
                     time.sleep(2 ** attempt)
                     continue

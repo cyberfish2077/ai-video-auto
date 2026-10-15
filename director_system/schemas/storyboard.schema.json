@@ -1,0 +1,543 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "storyboard.schema.json",
+  "title": "分镜（阶段 4）",
+  "description": "DeepSeek 按 prompts/04_storyboard.md 从已批准剧本生成；写入 projects/<film_id>/storyboard.json。本阶段不写 H3 提示词（prompt 留空，阶段 5 填）。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "concept_id",
+    "screenplay_revision",
+    "total_seconds",
+    "adopted_decisions",
+    "space_plan",
+    "duration_mapping_note",
+    "shots",
+    "asset_registry",
+    "continuity_review",
+    "pacing_review",
+    "visual_variety_review",
+    "generation_feasibility_review"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "type": "object",
+      "required": [
+        "revision",
+        "applied_fixes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "applied_fixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "unchanged_note": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "film_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "concept_id": {
+      "type": "string",
+      "pattern": "^c[1-9]$"
+    },
+    "screenplay_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "total_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "成片时长＝各段合法时长之和 + inherited_seconds（例如 89.63 + 30.375 = 120.00 秒）。理想时长由叙事决定，这里记的是映射到合法帧数之后的实际值。"
+    },
+    "inherited_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "开篇沿用既有素材的秒数（既有成片，本片不重新生成、不进 shots 表）。有它时：各镜帧数合计 + inherited_seconds = total_seconds。"
+    },
+    "duration_mapping_note": {
+      "type": "string",
+      "minLength": 20,
+      "description": "整片的时长映射说明：各镜理想时长如何映射到合法帧数、为此做了什么取舍（改边界／拆镜头／后期取用余量）。"
+    },
+    "equal_length_justification": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "当出现三段及以上且帧数完全相同时必填：故事为什么需要均匀节奏。写不出理由就是错误（校验会报警）。"
+    },
+    "adopted_decisions": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 5
+      },
+      "description": "已批准的 5 条决定（键盘声、空椅含义、动机是否显性、剪影是否回头、别针口径），逐条写清分镜怎么落实。"
+    },
+    "space_plan": {
+      "type": "object",
+      "description": "三段共用的空间平面图（同一层楼、同一排工位）。三镜必须引用同一份平面，不许各写一套。",
+      "required": [
+        "shared_for_all_shots",
+        "who_sits_where",
+        "zones",
+        "camera_positions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "shared_for_all_shots": {
+          "type": "boolean",
+          "const": true
+        },
+        "who_sits_where": {
+          "type": "string",
+          "minLength": 20,
+          "description": "谁坐在哪个位置：主角格、邻座、实习生、羚羊（及空椅归属）、隔断、走廊方位。"
+        },
+        "zones": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": [
+              "zone_id",
+              "description",
+              "which_shots"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "zone_id": {
+                "type": "string",
+                "minLength": 2
+              },
+              "description": {
+                "type": "string",
+                "minLength": 5
+              },
+              "which_shots": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "camera_positions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "shot_id",
+              "where",
+              "height_note",
+              "frame_note"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "shot_id": {
+                "type": "string",
+                "pattern": "^SH[0-9]{2}$"
+              },
+              "where": {
+                "type": "string",
+                "minLength": 5
+              },
+              "height_note": {
+                "type": "string",
+                "minLength": 5
+              },
+              "frame_note": {
+                "type": "string",
+                "minLength": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "description": "每个镜头＝一次生成＝一段连续镜头（本工作流一段之内不能换空间、不能切镜）。",
+      "items": {
+        "type": "object",
+        "required": [
+          "film_id",
+          "scene_id",
+          "shot_id",
+          "story_beat_id",
+          "dramatic_purpose",
+          "shot_function",
+          "estimated_edit_duration_sec",
+          "ideal_edit_duration_sec",
+          "duration_basis",
+          "boundary_reason",
+          "generation_segment_id",
+          "generation_duration_sec",
+          "generation_frames",
+          "shot_size",
+          "camera_angle",
+          "camera_movement",
+          "composition",
+          "visible_action",
+          "internal_beats",
+          "start_state",
+          "end_state",
+          "performance_or_action_intensity",
+          "sound_plan",
+          "continuity_in",
+          "continuity_out",
+          "axis_side",
+          "axis_change_justified",
+          "reference_assets",
+          "generation_strategy",
+          "risk_flags",
+          "prompt",
+          "approval_status",
+          "characters_in_frame"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "film_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scene_id": {
+            "type": "string",
+            "pattern": "^SC[0-9]{2}$"
+          },
+          "shot_id": {
+            "type": "string",
+            "pattern": "^SH[0-9]{2}$"
+          },
+          "story_beat_id": {
+            "type": "string",
+            "pattern": "^B[0-9]{2}$"
+          },
+          "dramatic_purpose": {
+            "type": "string",
+            "minLength": 5
+          },
+          "shot_function": {
+            "type": "string",
+            "enum": [
+              "建立空间",
+              "引入异常",
+              "升级",
+              "抉择",
+              "揭示",
+              "反应",
+              "收束"
+            ]
+          },
+          "estimated_edit_duration_sec": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "ideal_edit_duration_sec": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "这个镜头的**叙事理想时长**（按叙事任务定，可以是任意秒数，例如 2.5 或 18）。"
+          },
+          "duration_basis": {
+            "type": "string",
+            "minLength": 10,
+            "description": "为什么这个镜头需要这么长（动作要看清？台词语速？悬念要悬多久？情绪要沉淀？）。"
+          },
+          "boundary_reason": {
+            "type": "string",
+            "minLength": 10,
+            "description": "为什么在这里切：戏剧节拍／场景变化／镜头运动／视点变化；或标注为「技术拆分」（理想时长超过上限、必须拆成两段生成）。"
+          },
+          "generation_segment_id": {
+            "type": "string",
+            "pattern": "^s[1-9]$"
+          },
+          "generation_duration_sec": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "generation_frames": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "shot_size": {
+            "type": "string",
+            "enum": [
+              "大远景",
+              "远景",
+              "全景",
+              "中景",
+              "中近景",
+              "近景",
+              "特写",
+              "大特写"
+            ]
+          },
+          "camera_angle": {
+            "type": "string",
+            "minLength": 2
+          },
+          "camera_movement": {
+            "type": "string",
+            "minLength": 2
+          },
+          "composition": {
+            "type": "string",
+            "minLength": 5
+          },
+          "visible_action": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 5
+            },
+            "description": "按时间顺序、摄影机能拍到的动作。"
+          },
+          "internal_beats": {
+            "type": "array",
+            "minItems": 2,
+            "description": "连续镜头内部的分阶段（不是切镜）：每拍标明起止秒与画面内发生了什么。",
+            "items": {
+              "type": "object",
+              "required": [
+                "at_seconds",
+                "what"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "at_seconds": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "what": {
+                  "type": "string",
+                  "minLength": 5
+                }
+              }
+            }
+          },
+          "start_state": {
+            "$ref": "#/$defs/state"
+          },
+          "end_state": {
+            "$ref": "#/$defs/state"
+          },
+          "performance_or_action_intensity": {
+            "type": "string",
+            "minLength": 2
+          },
+          "sound_plan": {
+            "type": "string",
+            "minLength": 5
+          },
+          "continuity_in": {
+            "type": "string",
+            "minLength": 2
+          },
+          "continuity_out": {
+            "type": "string",
+            "minLength": 2
+          },
+          "axis_side": {
+            "type": "string",
+            "enum": [
+              "同侧",
+              "另一侧",
+              "不适用"
+            ],
+            "description": "相对上一镜的轴线位置；同空间连续镜头之间换侧必须给出理由。"
+          },
+          "axis_change_justified": {
+            "type": "boolean"
+          },
+          "reference_assets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 9,
+            "description": "本镜提交的参考图（≤9 张），顺序即工作流槽位顺序 ref_image_0..N-1。",
+            "items": {
+              "type": "object",
+              "required": [
+                "asset_id",
+                "slot_index",
+                "role",
+                "what_it_locks"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "asset_id": {
+                  "type": "string",
+                  "minLength": 2
+                },
+                "slot_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "角色参考",
+                    "场景参考",
+                    "分镜参考"
+                  ]
+                },
+                "what_it_locks": {
+                  "type": "string",
+                  "minLength": 5
+                }
+              }
+            }
+          },
+          "generation_strategy": {
+            "type": "string",
+            "minLength": 10
+          },
+          "risk_flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "阶段 4 一律为 null；阶段 5 编译提示词时填入。"
+          },
+          "approval_status": {
+            "type": "string",
+            "const": "PENDING_HUMAN_REVIEW"
+          },
+          "characters_in_frame": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 2
+            },
+            "description": "本镜画面里出现的角色 id（取剧本 continuity_bible 的 id）。人物锁定行由程序按这张表生成。"
+          }
+        }
+      }
+    },
+    "asset_registry": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "kind",
+          "short_name",
+          "description",
+          "to_be_generated_by"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "minLength": 2
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "角色",
+              "场景",
+              "道具",
+              "分镜图"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 5
+          },
+          "to_be_generated_by": {
+            "type": "string",
+            "minLength": 5
+          },
+          "short_name": {
+            "type": "string",
+            "minLength": 2,
+            "description": "提示词里用的短名（例如「主角正面」「办公区」「红别针」）；参考图声明行由程序用这个名字生成，不由模型自由发挥。"
+          },
+          "character_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "若这张图是某个角色的参考，填剧本 continuity_bible 里的角色 id（如 CH01）；场景/道具填 null。"
+          }
+        }
+      }
+    },
+    "continuity_review": {
+      "type": "string",
+      "minLength": 15
+    },
+    "pacing_review": {
+      "type": "string",
+      "minLength": 15
+    },
+    "visual_variety_review": {
+      "type": "string",
+      "minLength": 15
+    },
+    "generation_feasibility_review": {
+      "type": "string",
+      "minLength": 15
+    }
+  },
+  "$defs": {
+    "state": {
+      "type": "object",
+      "required": [
+        "character_position",
+        "gaze",
+        "prop_state",
+        "environment_state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "character_position": {
+          "type": "string",
+          "minLength": 2
+        },
+        "gaze": {
+          "type": "string",
+          "minLength": 2
+        },
+        "prop_state": {
+          "type": "string",
+          "minLength": 2
+        },
+        "environment_state": {
+          "type": "string",
+          "minLength": 2
+        }
+      }
+    }
+  }
+}

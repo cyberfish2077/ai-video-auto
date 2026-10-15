@@ -17,13 +17,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import comfy, generate
+from . import comfy, generate, materials
 from . import workflow as wf_mod
 from .config import PROJECT_ROOT
 
@@ -71,6 +72,9 @@ class Segment:
     #: 连续性锚点：指定"上一段的片段 id"，本段会把上一段的**真实最后一帧**
     #: 作为额外参考图加进槽位（T8 这类参考图工作流用它来抹平接缝）。
     chain_prev: str | None = None
+    #: 工作流专用参数（按 config/workflow_targets.yaml 的 overrides 键名写），
+    #: 例如配音段落的 instruct / language / voice_model，或素材段落的 aspect_ratio。
+    extra: dict[str, Any] | None = None
     status: str = STATUS_PENDING
     attempts: int = 0
     prompt_id: str | None = None
@@ -90,7 +94,9 @@ class Segment:
 @dataclass
 class Project:
     name: str
-    target: str = "t2v_4step"
+    # 默认目标工作流：T2V/FL2V 那份留档工作流已于 2026-10-14 删除（用户确认用不上），
+    # 现项目一律用 T8 多参考工作流，故默认值同步改成它。
+    target: str = "t8bridge_9ref"
     defaults: dict[str, Any] = field(default_factory=dict)
     segments: list[Segment] = field(default_factory=list)
     created_at: str = field(default_factory=_now)
@@ -99,7 +105,7 @@ class Project:
     def from_dict(cls, data: dict) -> "Project":
         return cls(
             name=str(data.get("name") or "unnamed"),
-            target=str(data.get("target") or "t2v_4step"),
+            target=str(data.get("target") or "t8bridge_9ref"),
             defaults=dict(data.get("defaults") or {}),
             segments=[Segment.from_dict(s) for s in (data.get("segments") or [])],
             created_at=str(data.get("created_at") or _now()),
@@ -205,6 +211,8 @@ class TaskRunner:
         ffprobe: Path | None = None,
         ffmpeg: Path | None = None,
         input_dir: Path | None = None,
+        projects_root: Path | None = None,
+        auto_sync_images: bool = True,
         logger: logging.Logger | None = None,
     ) -> None:
         self.client = client
@@ -218,6 +226,8 @@ class TaskRunner:
         self.ffprobe = ffprobe
         self.ffmpeg = ffmpeg
         self.input_dir = input_dir
+        self.projects_root = projects_root
+        self.auto_sync_images = auto_sync_images
         self.log = logger or logging.getLogger("video_auto.tasks")
 
     def values_for(self, project: Project, seg: Segment) -> dict[str, Any]:
@@ -242,6 +252,9 @@ class TaskRunner:
                 values[key] = value
             else:
                 values.pop(key, None)
+        # 工作流专用参数最后合并：同一台账里可以混排"素材图""配音"等不同用途的片段
+        if seg.extra:
+            values.update(seg.extra)
         return values
 
     def _inject_chain_anchor(self, project: Project, seg: Segment, values: dict) -> None:
@@ -273,6 +286,47 @@ class TaskRunner:
         values[key] = anchor_name
         self.log.info("%s 已注入连续性锚点：%s（取自 %s）", seg.id, anchor_name, prev.id)
 
+    def _sync_reference_images(self, project: Project, seg: Segment, values: dict) -> None:
+        """提交前把本段要用的参考图补进 ComfyUI 的 ``input`` 目录。
+
+        为什么由程序做（2026-10-15 实测踩过）：多图参考/派生批次里，**后一级要读同一批
+        刚出的图**（例如 `silhouette` 要用同批生成的 `side`）。原来只能在两级之间手工跑一次
+        `sync_inputs.py`，漏了就连续 3 次 `Invalid image file: xxx.png` 白跑，最后那段只能
+        `reset` 后重跑。现在每段提交前补一次：缺的在素材目录里找到就复制，
+        找不到就**提前**把名字报出来（而不是等 ComfyUI 拒绝提交）。
+
+        `input` 里已有的图不会被无谓覆盖：只有当素材目录里找到的那张**更新**时才刷新。
+        """
+        if not (self.auto_sync_images and self.input_dir and self.projects_root):
+            return
+        names = [str(value) for key, value in values.items()
+                 if value and (str(key).startswith("ref_image_")
+                               or str(key) in ("first_frame", "last_frame"))]
+        if not names:
+            return
+        dirs = materials.material_dirs(self.projects_root, project.name)
+        copied: list[str] = []
+        missing: list[str] = []
+        for name in names:
+            target = self.input_dir / Path(name).name
+            source = materials.find_material(dirs, name)
+            if target.exists() and (source is None
+                                    or source.stat().st_mtime <= target.stat().st_mtime):
+                continue
+            if source is None:
+                missing.append(name)
+                continue
+            shutil.copy2(source, target)
+            copied.append(f"{Path(name).name} <- {source.name}")
+        if copied:
+            self.log.info("%s 提交前自动同步参考图 %d 张：%s", seg.id, len(copied),
+                          "；".join(copied[:4]) + ("…" if len(copied) > 4 else ""))
+        if missing:
+            self.log.warning("%s 有 %d 张参考图在素材目录里找不到：%s"
+                             "（多半还没生成好；ComfyUI 很可能直接拒绝这次提交，"
+                             "解决办法：先跑出这些图，再重跑本段）",
+                             seg.id, len(missing), "、".join(Path(m).name for m in missing[:6]))
+
     def _effective_prompt(self, seg: Segment) -> str:
         """取本次生成实际使用的提示词：优先读文件，读不到再用台账里的快照。"""
         if not seg.prompt_file:
@@ -301,14 +355,21 @@ class TaskRunner:
         reuse_existing: bool = True,
         stop_on_error: bool = False,
         dry_run: bool = False,
+        only: list[str] | None = None,
     ) -> dict[str, int]:
-        for seg in project.segments:
+        # only=只处理指定片段（分级试拍/补跑用）。**绝不能改写 project.segments 本身**：
+        # 下面每一步都会 store.save(project)，一旦把别的片段从列表里删掉，
+        # 它们就会从台账里彻底消失（2026-10-13 实测踩过，7/57 条的台账就这么没的）。
+        targets = [seg for seg in project.segments if only is None or seg.id in only]
+        for seg in targets:
             if seg.status == STATUS_DONE:
                 self.log.info("跳过（已完成）：%s", seg.id)
                 continue
 
             values = self.values_for(project, seg)
-            fingerprint = generate.segment_fingerprint(self.workflow_path, values)
+            fingerprint = generate.segment_fingerprint(
+                self.workflow_path, values,
+                overrides=generate.build_overrides(self.target_cfg, values))
             seg.fingerprint = fingerprint
 
             if reuse_existing:
@@ -335,6 +396,7 @@ class TaskRunner:
                 seg.prompt_id = None
 
             self._inject_chain_anchor(project, seg, values)
+            self._sync_reference_images(project, seg, values)
             self._attempt_loop(project, seg, values, max_attempts=max_attempts,
                                retry_backoff=retry_backoff, timeout_seconds=timeout_seconds,
                                fingerprint=fingerprint)

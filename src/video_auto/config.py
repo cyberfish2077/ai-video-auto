@@ -29,6 +29,20 @@ STYLES_FILE: Path = CONFIG_DIR / "styles.yaml"
 ENV_FILE: Path = PROJECT_ROOT / ".env"
 ENV_EXAMPLE_FILE: Path = PROJECT_ROOT / ".env.example"
 
+#: 导演系统（director_system/）的配置。路径仍然只在本模块里集中定义，
+#: 业务代码一律通过 :func:`load_director_config` 取值，不直接读 yaml。
+DIRECTOR_DIR: Path = PROJECT_ROOT / "director_system"
+DIRECTOR_CONFIG_FILE: Path = DIRECTOR_DIR / "config" / "director.yaml"
+DIRECTOR_CONFIG_EXAMPLE_FILE: Path = DIRECTOR_DIR / "config" / "director.example.yaml"
+#: 导演系统的 JSON Schema 目录（阶段 4/5 会往里面加分镜、提示词等 schema）
+DIRECTOR_SCHEMAS_DIR: Path = DIRECTOR_DIR / "schemas"
+#: 导演系统的自检脚本、测试与报告目录
+DIRECTOR_SCRIPTS_DIR: Path = DIRECTOR_DIR / "scripts"
+DIRECTOR_TESTS_DIR: Path = DIRECTOR_DIR / "tests"
+DIRECTOR_REPORTS_DIR: Path = DIRECTOR_DIR / "reports"
+#: 导演系统的本地密钥文件（已被 .gitignore 忽略；只报"有没有"，不读内容）
+DIRECTOR_SECRETS_DIR: Path = DIRECTOR_DIR / "secrets"
+
 
 class ConfigError(RuntimeError):
     """配置读取失败。错误信息中一定附带"怎么修"的提示。"""
@@ -107,6 +121,23 @@ def load_workflow_targets() -> dict[str, Any]:
         raise ConfigError(
             f"工作流登记表为空或格式不对：{WORKFLOW_TARGETS_FILE}\n"
             f"解决办法：按 config/workflow_targets.yaml 的现有格式补充条目。"
+        )
+    return data
+
+
+def load_director_config() -> dict[str, Any]:
+    """读取 director_system/config/director.yaml：导演系统自己的配置。
+
+    这里**只放导演系统的知识**（审核关卡、生成能力限值、密钥来源等）。
+    所有**路径**继续由本模块的 :class:`Settings`（config/settings.yaml）提供，
+    导演系统的配置文件里不写任何绝对路径。
+    """
+    data = _read_yaml(DIRECTOR_CONFIG_FILE, DIRECTOR_CONFIG_EXAMPLE_FILE)
+    if not isinstance(data, dict) or not data:
+        raise ConfigError(
+            f"导演系统配置为空或格式不对：{DIRECTOR_CONFIG_FILE}\n"
+            f"解决办法：补上 version / review_gates / film_layout / generation / secrets 这几节，"
+            f"结构见 director_system/schemas/director_config.schema.json。"
         )
     return data
 

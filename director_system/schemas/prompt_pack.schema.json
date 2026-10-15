@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prompt_pack.schema.json",
+  "title": "提示词包（阶段 5）",
+  "description": "把已批准分镜编译成 T8 工作流真正吃得下的中文提示词 + 参考图槽位表 + 出图提示词。**prompt_lines 是唯一事实来源**，最终 .txt 由程序拼装，不另写一份。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "concept_id",
+    "storyboard_revision",
+    "total_seconds",
+    "prompt_language",
+    "style_profile",
+    "shots",
+    "assets",
+    "compile_notes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "type": "object",
+      "required": [
+        "revision",
+        "applied_fixes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "applied_fixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "unchanged_note": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "film_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "concept_id": {
+      "type": "string",
+      "pattern": "^c[1-9]$"
+    },
+    "storyboard_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "total_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "prompt_language": {
+      "type": "string",
+      "const": "zh"
+    },
+    "style_profile": {
+      "type": "string",
+      "minLength": 2,
+      "description": "config/styles.yaml 里的档位名；style_prefix 必须逐字用在每镜的风格行开头。"
+    },
+    "compile_notes": {
+      "type": "string",
+      "minLength": 20
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "shot_id",
+          "segment_id",
+          "frames",
+          "seconds",
+          "prompt_lines",
+          "reference_images",
+          "risk_notes",
+          "dialogue_lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^SH[0-9]{2}$"
+          },
+          "segment_id": {
+            "type": "string",
+            "pattern": "^s[1-9]$"
+          },
+          "frames": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "prompt_lines": {
+            "type": "object",
+            "description": "按 T8 模板的六段结构逐行给出；最终 .txt 由程序按这个顺序拼。",
+            "required": [
+              "material_constraint",
+              "style_line",
+              "timeline",
+              "sound_line",
+              "negative_line"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ref_declaration": {
+                "type": "string",
+                "minLength": 10,
+                "description": "【由程序生成，不要自己写】从分镜的参考图槽位与资产表、以及剧本的角色表拼出来，保证与提交内容逐字对应。"
+              },
+              "material_constraint": {
+                "type": "string",
+                "minLength": 10
+              },
+              "character_lock": {
+                "type": "string",
+                "minLength": 10,
+                "description": "【由程序生成，不要自己写】从分镜的参考图槽位与资产表、以及剧本的角色表拼出来，保证与提交内容逐字对应。"
+              },
+              "style_line": {
+                "type": "string",
+                "minLength": 20,
+                "description": "以 config/styles.yaml 的 style_prefix 开头；含本镜时长与画幅（16:9）。"
+              },
+              "timeline": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "string",
+                  "minLength": 5
+                },
+                "description": "按秒分段的镜头行，形如「0-2.2秒：景别+机位+动作」；起止秒必须与分镜的 internal_beats 对齐。"
+              },
+              "sound_line": {
+                "type": "string",
+                "minLength": 5,
+                "description": "以【声音】开头。"
+              },
+              "negative_line": {
+                "type": "string",
+                "minLength": 5,
+                "description": "以「负面：」开头（本工作流不生效，仅为格式一致）。"
+              }
+            }
+          },
+          "reference_images": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 9,
+            "items": {
+              "type": "object",
+              "required": [
+                "slot_index",
+                "asset_id",
+                "label_in_prompt",
+                "role"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "slot_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "asset_id": {
+                  "type": "string",
+                  "minLength": 2
+                },
+                "label_in_prompt": {
+                  "type": "string",
+                  "pattern": "^@图片[1-9]$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "角色参考",
+                    "场景参考",
+                    "分镜参考"
+                  ]
+                }
+              }
+            }
+          },
+          "risk_notes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "dialogue_lines": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "本镜台词/旁白条数（用于后期配音）。画面提示词里不出现台词文字。"
+          },
+          "dialogue": {
+            "type": "array",
+            "description": "本镜台词与旁白条目（后期配音用；**不要把这些文字写进 prompt_lines**）。没有就给空数组。",
+            "items": {
+              "type": "object",
+              "required": [
+                "speaker",
+                "text"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "speaker": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "is_narration": {
+                  "type": "boolean"
+                },
+                "voice_note": {
+                  "type": "string",
+                  "description": "音色/语气提示，交给 TTS 的声音设计。"
+                },
+                "at_seconds": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "在本镜内的开口时间（秒）。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "kind",
+          "qwen_target",
+          "prompt",
+          "aspect_ratio"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "minLength": 2
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "角色",
+              "场景",
+              "道具",
+              "分镜图"
+            ]
+          },
+          "qwen_target": {
+            "type": "string",
+            "enum": [
+              "qwen_t2i",
+              "qwen_edit",
+              "qwen_multiref"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 20
+          },
+          "negative": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "minLength": 4
+          },
+          "derived_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "qwen_edit 的身份来源资产 id。"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

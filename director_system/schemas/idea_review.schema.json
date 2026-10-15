@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "idea_review.schema.json",
+  "title": "创意独立评审（阶段 2）",
+  "description": "由独立评审提示词（prompts/06_quality_review.md）产出；不得自动放行：status 必须是 PENDING_HUMAN_REVIEW。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "status",
+    "summary",
+    "per_concept",
+    "issues",
+    "cliche_flags",
+    "causality_assessment",
+    "motivation_assessment",
+    "visual_feasibility",
+    "ending_fairness",
+    "duration_feasibility",
+    "recommendation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "film_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "const": "PENDING_HUMAN_REVIEW" },
+    "summary": { "type": "string", "minLength": 20 },
+    "per_concept": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "verdict", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^c[1-9]$" },
+          "verdict": { "type": "string", "enum": ["推荐", "可选", "不建议"] },
+          "reason": { "type": "string", "minLength": 10 }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scope", "category", "severity", "evidence", "smallest_fix"],
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "type": "string", "minLength": 1, "description": "概念 id（c1~c5）或「整体」" },
+          "category": {
+            "type": "string",
+            "enum": ["套路", "因果", "人物动机", "视觉可表现性", "结尾公平性", "时长可行性", "制作风险"]
+          },
+          "severity": { "type": "string", "enum": ["致命", "严重", "轻微"] },
+          "evidence": { "type": "string", "minLength": 10 },
+          "smallest_fix": { "type": "string", "minLength": 5 }
+        }
+      }
+    },
+    "cliche_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 4 }
+    },
+    "causality_assessment": { "type": "string", "minLength": 15 },
+    "motivation_assessment": { "type": "string", "minLength": 15 },
+    "visual_feasibility": { "type": "string", "minLength": 15 },
+    "ending_fairness": { "type": "string", "minLength": 15 },
+    "duration_feasibility": { "type": "string", "minLength": 15 },
+    "recommendation": {
+      "type": "object",
+      "required": ["top_pick", "runner_up", "why", "what_human_must_decide"],
+      "additionalProperties": false,
+      "properties": {
+        "top_pick": { "type": "string", "pattern": "^c[1-9]$" },
+        "runner_up": { "type": "string", "pattern": "^c[1-9]$" },
+        "why": { "type": "string", "minLength": 20 },
+        "what_human_must_decide": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 5 }
+        }
+      }
+    }
+  }
+}

@@ -68,6 +68,10 @@ t8bridge_9ref:
     ref_image_7:      { node: 279, input: image }
     ref_image_8:      { node: 280, input: image }
     ref_image_9:      { node: 281, input: image }
+    # 音频参考（ref_audios，节点 286/287/285）：**2026-10-15 实测无效**——
+    # 把 TTS 配音喂进去、同时把台词从提示词里拿掉，模型既没念出中文、也没动嘴（出来的是听不懂的语言）。
+    # 这个模型只在**台词写进提示词**时才会正确说中文并动嘴，所以不登记这几个键，避免以后误用。
+    # 结论与取证见 director_system/reports/voice_routes_findings.md。
   notes:
     - 节点 136 是核心的 MiniMaxH3ReferenceToVideo，宽/高/帧数与 ref_image_size 目前用工作流自带值（1344x768 / 124 帧 / max）。
     - 3 个 VHS_LoadVideo 与 3 个 LoadAudio 都是跳过状态：只吃图片，不吃视频和音频。
@@ -124,6 +128,75 @@ qwen_t2i:
     - 尺寸由节点 13 ResolutionSelector 决定（宽高会连到节点 487 EmptyLatentImage）。
     - 节点 484 的 resolution 保持工作流默认 1024：该输入语义未在文档中说明，遵循作者原值，不猜测。
     - 生成的图片要放进 ComfyUI 的 input 目录，H3 工作流的 LoadImage 才能引用。
+
+# ============================================================
+# 图像编辑：以一张已审核的图为身份来源，派生"同一个人的另一个年龄/造型"
+# 用途：《剪枝者》里年长林泽、童年林泽必须与成年林泽是同一张脸，不能另起一张脸
+# ============================================================
+qwen_edit:
+  label: Qwen-Image-2.1 图像编辑（单图 + 文字指令，保留身份）
+  file: workflows/Qwen-Image-2.1_图像编辑.json
+  archive_subdir: materials
+  overrides:
+    prompt:          { node: 534, input: prompt }            # 编辑指令（英文或中文均可）
+    negative_prompt: { node: 534, input: negative_prompt }
+    seed:            { node: 506, input: seed }              # KSampler 的种子
+    ref_image_1:     { node: 470, input: image }             # 输入图（身份来源），必须先同步进 ComfyUI input
+    output_prefix:   { node: 461, input: filename_prefix }
+  notes:
+    - 输出尺寸 = 输入图尺寸（节点 470 → 518 ImageScaleToTotalPixels → 526 GetImageSize → 504 宽高），
+      所以参考图按什么比例准备，产物就是什么比例。
+    - 节点 535 的 LoRA `qwen-image-2.1-consistency-2000` 是在用的身份一致性 LoRA，不要禁用。
+    - 项目副本已把节点 461 从 `SaveImageAdvanced` 换成经典 `SaveImage`（0.39 的 API 驱动坑，同 qwen_t2i）。
+    - 节点 470 的默认文件名是作者示例图，每次生成都会被 ref_image_1 覆盖；体检在素材同步前会报这一条。
+
+# ============================================================
+# 多图参考出图：把"角色图 + 场景图 + 构图要求"合成分镜图，让分镜图自带人物身份
+# 用途：《剪枝者》里带人物的分镜图（文生图会画出随机路人脸，有被 H3 学走的风险）
+# ============================================================
+qwen_multiref:
+  label: Qwen-Image-2.1 多图参考（角色图 + 场景图 → 带身份的分镜图）
+  file: workflows/Qwen-Image-2.1_多图参考.json
+  archive_subdir: materials
+  overrides:
+    prompt:        { node: 509, input: prompt }             # 用"图1里的人/场景"这种说法引用各参考图
+    negative_prompt: { node: 509, input: negative_prompt }
+    seed:          { node: 506, input: seed }
+    # 每个槽位后面的 ImageScaleToTotalPixels 要跟着一起跳过，否则该节点会缺必填输入
+    ref_image_1:   { node: 470, input: image, bypass_extra: [518] }
+    ref_image_2:   { node: 533, input: image, bypass_extra: [534] }
+    ref_image_3:   { node: 535, input: image, bypass_extra: [536] }
+    ref_image_4:   { node: 537, input: image, bypass_extra: [538] }
+    output_prefix: { node: 461, input: filename_prefix }
+  notes:
+    - 输出固定 1920x1080（节点 504 EmptyLatentImage 写死），参考图各自缩到约 1 兆像素再送进编码器。
+    - 提示词里用 "image 1 / image 2 ..." 指代四个槽位，顺序就是 ref_image_1..4。
+    - 项目副本已把节点 461 从 SaveImageAdvanced 换成经典 SaveImage（同 qwen_t2i / qwen_edit）。
+    - 四个 LoadImage 的默认文件名已改成本片素材名；每次生成都会被 ref_image_N 覆盖。
+
+# ============================================================
+# 配音（Qwen3-TTS 声音设计）：旁白与对白后期配音，不让视频模型烧字幕
+# ============================================================
+tts_voice_design:
+  label: Qwen3-TTS 声音设计（用文字描述音色生成配音）
+  file: workflows/Qwen3-TTS-声音设计.json
+  archive_subdir: audio
+  overrides:
+    # 键名必须与台账提供的字段一致：台账给的是 prompt / seed（不是 text / voice_seed），
+    # 写错键名不会报错，只会静默地不替换 —— 2026-10-13 实测踩过：中文台词没进模型，
+    # 生成出来的是工作流自带的示例台词，时长还稳定在 3.26 秒，看起来"很正常"。
+    prompt:         { node: 38, input: text }                # 要念的文本（中文）
+    instruct:       { node: 38, input: instruct }            # 音色描述（每个角色写死一份，跨段一致）
+    language:       { node: 38, input: language }            # Chinese
+    voice_model:    { node: 38, input: model_choice }        # 0.6B / 1.7B
+    seed:           { node: 38, input: seed }                # 同一角色固定种子，音色才稳定
+    output_prefix:  { node: 47, input: filename_prefix }
+  notes:
+    - 产物是 mp3（SaveAudioMP3，quality 默认 V0），交给合成阶段混音。
+    - 音色不是靠"克隆"而是靠 instruct 文字描述 + 固定 seed；同一角色必须逐字复用同一段 instruct。
+    - 节点 47 的输出前缀默认带 `audio/` 子目录，归档时会以文件名整体复制到项目 audio/ 下。
+    - 台账里的 prompt 字段就是"要念的台词"，instruct / language / voice_model 走 segments[].extra；
+      seed 直接写片段自己的 seed 字段。
 
 # ============================================================
 # 背景音乐生成（Ace-Step 1.5）：做一条贯穿全片的 BGM

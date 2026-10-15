@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "artifact_review.schema.json",
+  "title": "独立评审（通用：剧本、分镜等）",
+  "description": "由 prompts/06_quality_review.md 产出。不得自动放行：status 固定 PENDING_HUMAN_REVIEW，auto_approve 固定 false。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "target",
+    "status",
+    "auto_approve",
+    "summary",
+    "issues",
+    "criterion_assessments",
+    "must_fix_before_next_stage",
+    "strengths",
+    "recommendation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "film_id": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "string",
+      "enum": ["outline", "screenplay", "storyboard", "prompts", "clips"],
+      "description": "这次评审的是哪一类产物。"
+    },
+    "status": { "type": "string", "const": "PENDING_HUMAN_REVIEW" },
+    "auto_approve": { "type": "boolean", "const": false },
+    "summary": { "type": "string", "minLength": 30 },
+    "issues": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scope", "category", "severity", "evidence", "smallest_fix"],
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string",
+            "minLength": 1,
+            "description": "场次 id（如 SC02）、镜头 id，或「整体」。"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "套路",
+              "因果",
+              "人物动机",
+              "视觉可表现性",
+              "结尾公平性",
+              "时长可行性",
+              "台词与字幕",
+              "制作风险",
+              "连续性"
+            ]
+          },
+          "severity": { "type": "string", "enum": ["致命", "严重", "轻微"] },
+          "evidence": { "type": "string", "minLength": 10 },
+          "smallest_fix": { "type": "string", "minLength": 5 }
+        }
+      }
+    },
+    "criterion_assessments": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["criterion", "verdict", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "enum": [
+              "因果链",
+              "人物能动性与代价",
+              "戏剧引擎与节奏",
+              "视觉可表现性",
+              "结尾公平性",
+              "时长与分段可行性",
+              "台词字幕风险",
+              "AI 制作可行性",
+              "连续性可追踪"
+            ]
+          },
+          "verdict": { "type": "string", "enum": ["站得住", "有保留", "不成立"] },
+          "evidence": { "type": "string", "minLength": 10 }
+        }
+      }
+    },
+    "must_fix_before_next_stage": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 5 },
+      "description": "不修就不能进入下一阶段的硬项（按优先级排列）。**只收致命与严重**：轻微项写进 issues 存档即可，不许列在这里；条数不得超过 issues 里 致命 + 严重 的条数。没有致命/严重项时这里给空数组。"
+    },
+    "strengths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 5 }
+    },
+    "recommendation": {
+      "type": "object",
+      "required": ["next_stage_ready", "why", "what_human_must_decide"],
+      "additionalProperties": false,
+      "properties": {
+        "next_stage_ready": {
+          "type": "boolean",
+          "description": "评审的意见：是否可以带着 must_fix 清单进入下一阶段。"
+        },
+        "why": { "type": "string", "minLength": 20 },
+        "what_human_must_decide": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 5 }
+        }
+      }
+    }
+  }
+}

@@ -61,6 +61,10 @@ def build_bypass(target_cfg: dict, values: dict[str, Any]) -> set[int]:
 
     工作流里 9 个参考图槽位默认全部启用，但每个片段实际用几张图由内容决定。
     没给图的槽位必须跳过，否则 ComfyUI 会因为找不到文件而拒绝提交。
+
+    有些工作流的参考图槽位后面还挂着"缩放/预处理"节点（例如 Qwen 多图参考的
+    ImageScaleToTotalPixels）：只跳过 LoadImage 会让下游那个节点缺少必填输入而提交失败。
+    这类节点写在该槽位的 ``bypass_extra`` 里，一起跳过。
     """
     bypass: set[int] = set()
     values = merge_target_defaults(target_cfg, values)
@@ -69,8 +73,13 @@ def build_bypass(target_cfg: dict, values: dict[str, Any]) -> set[int]:
             continue
         if values.get(key):
             continue
-        if isinstance(spec, dict) and "node" in spec:
-            bypass.add(int(spec["node"]))
+        specs = spec if isinstance(spec, list) else [spec]
+        for item in specs:
+            if not (isinstance(item, dict) and "node" in item):
+                continue
+            bypass.add(int(item["node"]))
+            for extra in item.get("bypass_extra") or []:
+                bypass.add(int(extra))
     return bypass
 
 
@@ -79,12 +88,22 @@ VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 
-def segment_fingerprint(workflow_file: Path, values: dict[str, Any]) -> str:
+def segment_fingerprint(
+    workflow_file: Path,
+    values: dict[str, Any],
+    *,
+    overrides: dict[int, dict[str, Any]] | None = None,
+) -> str:
     """内容指纹：用来判断"同样内容是否已经生成过"。
 
     刻意**不包含**输出文件名前缀 —— 换个名字重新导出并不会改变画面内容。
+    除提示词/时长/分辨率/种子外，还要带上工作流专用参数（参考图、音色描述、
+    画幅档位等）：它们同样会改变产物，漏掉会让"内容不同却指纹相同"的片段被错误复用。
+    另外带上**实际改写到的节点映射**：登记表里键名写错时（例如把 ``prompt`` 写成
+    ``text``），产物会与正确配置下完全不同，映射纳入指纹才能保证修好之后不会
+    复用回那份错的产物。
     """
-    payload = {
+    payload: dict[str, Any] = {
         "workflow_sha256": hashlib.sha256(workflow_file.read_bytes()).hexdigest(),
         "prompt": values.get("prompt"),
         "duration_seconds": values.get("duration_seconds"),
@@ -92,7 +111,18 @@ def segment_fingerprint(workflow_file: Path, values: dict[str, Any]) -> str:
         "height": values.get("height"),
         "seed": values.get("seed"),
         "target": values.get("target"),
+        "params": {
+            key: value for key, value in values.items()
+            if key not in ("prompt", "duration_seconds", "width", "height", "seed",
+                           "target", "output_prefix")
+        },
     }
+    # 没有改写点的目标（例如纯 UI 开关类工作流）保持与历史指纹一致，不因为这次加固而失配
+    if overrides:
+        payload["overrides"] = {
+            str(node): {name: value for name, value in sorted(spec.items())}
+            for node, spec in sorted(overrides.items())
+        }
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 

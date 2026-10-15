@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "director_config.schema.json",
+  "title": "导演系统配置 director_system/config/director.yaml",
+  "description": "只约束导演系统自己的配置。路径不在这里出现（一律来自 config/settings.yaml）。",
+  "type": "object",
+  "required": [
+    "version",
+    "review_gates",
+    "gate_states",
+    "initial_gate_state",
+    "film_layout",
+    "generation",
+    "duration_policy",
+    "pacing_policy",
+    "review_convergence",
+    "secrets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "review_gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "unlocks"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z]$" },
+          "title": { "type": "string", "minLength": 1 },
+          "unlocks": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "gate_states": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "type": "string", "pattern": "^[A-Z_]+$" }
+    },
+    "initial_gate_state": {
+      "type": "string",
+      "pattern": "^[A-Z_]+$"
+    },
+    "film_layout": {
+      "type": "object",
+      "required": ["root_key", "state_file", "subdirs"],
+      "additionalProperties": false,
+      "properties": {
+        "root_key": {
+          "type": "string",
+          "description": "影片根目录取自 config/settings.yaml 的哪个配置项。"
+        },
+        "state_file": { "type": "string", "minLength": 1 },
+        "subdirs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "generation": {
+      "type": "object",
+      "required": [
+        "target",
+        "fps",
+        "frames",
+        "duration_seconds",
+        "ref_images_max",
+        "resolution"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "type": "string", "minLength": 1 },
+        "fps": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "frames": {
+          "type": "object",
+          "required": ["min", "max", "step", "min_mod"],
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1 },
+            "step": { "type": "integer", "minimum": 1 },
+            "min_mod": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "duration_seconds": {
+          "type": "object",
+          "required": ["min", "max"],
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "number", "exclusiveMinimum": 0 },
+            "max": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "ref_images_max": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "resolution": {
+          "type": "object",
+          "required": ["width", "height", "megapixels"],
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "integer", "minimum": 64 },
+            "height": { "type": "integer", "minimum": 64 },
+            "megapixels": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "required": ["env_var", "local_file"],
+      "additionalProperties": false,
+      "properties": {
+        "env_var": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "local_file": {
+          "type": "string",
+          "description": "相对项目根目录的本地密钥文件；必须被 .gitignore 覆盖。"
+        }
+      }
+    },
+    "duration_policy": {
+      "type": "object",
+      "required": ["prefer_legal_duration", "nominal_seconds", "tolerance_seconds", "trim_in_post"],
+      "additionalProperties": true,
+      "properties": {
+        "prefer_legal_duration": { "type": "boolean" },
+        "nominal_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "tolerance_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "trim_in_post": { "type": "boolean" }
+      }
+    },
+    "review_convergence": {
+      "type": "object",
+      "required": ["max_revision_rounds", "fatal_threshold", "serious_threshold", "release_rule"],
+      "additionalProperties": false,
+      "properties": {
+        "max_revision_rounds": { "type": "integer", "minimum": 0 },
+        "fatal_threshold": { "type": "integer", "minimum": 0 },
+        "serious_threshold": { "type": "integer", "minimum": 0 },
+        "release_rule": { "type": "string", "minLength": 10 },
+        "note": { "type": "string" }
+      },
+      "description": "独立评审的收敛判据：追 0 条是无限循环，这里写清\"什么时候可以放行\"。"
+    },
+    "pacing_policy": {
+      "type": "object",
+      "required": ["order", "priority", "mapping_rules", "equal_length_rule"],
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string", "minLength": 10 },
+          "description": "分段与节奏的决策顺序：先镜头边界 → 再叙事时长 → 最后映射合法帧数。"
+        },
+        "priority": { "type": "string", "minLength": 10 },
+        "mapping_rules": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "minLength": 10 }
+        },
+        "equal_length_rule": { "type": "string", "minLength": 10 }
+      }
+    }
+  }
+}

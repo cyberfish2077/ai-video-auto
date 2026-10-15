@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "story_outline.schema.json",
+  "title": "故事大纲（阶段 3）",
+  "description": "DeepSeek 按 prompts/02_story_outline.md 与已批准的概念生成；写入 projects/<film_id>/story_outline.json。",
+  "type": "object",
+  "required": [
+    "film_id",
+    "concept_id",
+    "title",
+    "synopsis",
+    "protagonist",
+    "total_seconds",
+    "duration_note",
+    "scenes",
+    "beats",
+    "setup_payoff",
+    "logic_risks",
+    "cliche_risks",
+    "production_risks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "type": "object",
+      "description": "修订信息（第一版没有这个字段；按评审必修项返修时必须有）。",
+      "required": [
+        "revision",
+        "applied_fixes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "applied_fixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "unchanged_note": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "film_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "concept_id": {
+      "type": "string",
+      "pattern": "^c[1-9]$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 2
+    },
+    "synopsis": {
+      "type": "string",
+      "minLength": 40
+    },
+    "protagonist": {
+      "type": "object",
+      "required": [
+        "who",
+        "goal",
+        "internal_conflict",
+        "stakes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "who": {
+          "type": "string",
+          "minLength": 2
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 2
+        },
+        "internal_conflict": {
+          "type": "string",
+          "minLength": 5
+        },
+        "stakes": {
+          "type": "string",
+          "minLength": 2
+        }
+      }
+    },
+    "total_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "成片时长＝各场理想时长之和 + inherited_seconds（开篇沿用既有素材的秒数，没有就填 0／不填）。不做裁切。"
+    },
+    "inherited_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "开篇沿用既有素材的秒数（本片不重新生成的部分）。有它时：total_seconds = 各场之和 + inherited_seconds，沿用段不写进场次表（它不拍）。"
+    },
+    "duration_note": {
+      "type": "string",
+      "minLength": 10,
+      "description": "说明时长怎么来的：几段、每段多少帧/秒。"
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": [
+          "scene_id",
+          "title",
+          "setting",
+          "estimated_seconds",
+          "dramatic_engine",
+          "what_happens",
+          "dramatic_change",
+          "audience_question",
+          "protagonist_choice"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^SC[0-9]{2}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 2
+          },
+          "estimated_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "dramatic_engine": {
+            "$ref": "#/$defs/engine"
+          },
+          "secondary_engine": {
+            "$ref": "#/$defs/engine"
+          },
+          "what_happens": {
+            "type": "string",
+            "minLength": 10
+          },
+          "dramatic_change": {
+            "type": "string",
+            "minLength": 5
+          },
+          "audience_question": {
+            "type": "string",
+            "minLength": 5
+          },
+          "protagonist_choice": {
+            "type": "string",
+            "minLength": 5,
+            "description": "这一场主角主动做的选择；纯反应型场景要写清他被逼到哪一步。"
+          }
+        }
+      }
+    },
+    "beats": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "beat_id",
+          "name",
+          "function",
+          "protagonist_want",
+          "obstacle",
+          "choice_action",
+          "consequence",
+          "new_question",
+          "why_next"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "beat_id": {
+            "type": "string",
+            "pattern": "^B[0-9]{2}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "function": {
+            "type": "string",
+            "enum": [
+              "开场钩子",
+              "打破日常",
+              "升级",
+              "中点变化",
+              "挫折",
+              "高潮",
+              "收束",
+              "反转"
+            ]
+          },
+          "protagonist_want": {
+            "type": "string",
+            "minLength": 2
+          },
+          "obstacle": {
+            "type": "string",
+            "minLength": 2
+          },
+          "choice_action": {
+            "type": "string",
+            "minLength": 2
+          },
+          "consequence": {
+            "type": "string",
+            "minLength": 2
+          },
+          "new_question": {
+            "type": "string",
+            "minLength": 2
+          },
+          "why_next": {
+            "type": "string",
+            "minLength": 5
+          }
+        }
+      }
+    },
+    "setup_payoff": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "setup",
+          "payoff",
+          "note"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "setup": {
+            "type": "string",
+            "minLength": 5
+          },
+          "payoff": {
+            "type": "string",
+            "minLength": 5
+          },
+          "note": {
+            "type": "string",
+            "minLength": 2
+          }
+        }
+      }
+    },
+    "logic_risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "cliche_risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "production_risks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "risk",
+          "staging_alternative"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "risk": {
+            "type": "string",
+            "minLength": 5
+          },
+          "staging_alternative": {
+            "type": "string",
+            "minLength": 5,
+            "description": "不改故事、只用另一种拍法绕开风险的方案。"
+          }
+        }
+      }
+    },
+    "equal_length_justification": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "当各场理想时长完全相同（三段及以上）时必填：这个故事为什么需要均匀节奏。写不出理由就是错误（校验会报警）。"
+    }
+  },
+  "$defs": {
+    "engine": {
+      "type": "string",
+      "description": "戏剧引擎，取自 standards/通用剧本与分镜规范.md 第 4 节。",
+      "enum": [
+        "情绪对峙",
+        "信息差",
+        "权力博弈",
+        "抉择",
+        "悬念",
+        "关系界定",
+        "仪式/规则",
+        "喜剧",
+        "温情"
+      ]
+    }
+  }
+}

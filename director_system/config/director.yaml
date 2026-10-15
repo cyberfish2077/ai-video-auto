@@ -1,0 +1,123 @@
+# ============================================================
+# 导演系统配置（阶段 1）
+# ------------------------------------------------------------
+# 两条硬规矩：
+#   1. 本文件**不写任何路径**（也不写绝对路径）。所有目录/文件位置一律来自
+#      项目根目录的 config/settings.yaml，由 video_auto.config 读取。
+#   2. 生成能力限值必须**来自实测**，不得凭印象改。当前数值的来源是
+#      director_system/reports/environment_and_workflow_audit.md（2026-10-14 实测）。
+#      改动这里之前，先跑：
+#        .venv\Scripts\python.exe director_system\scripts\check_director_env.py
+# ============================================================
+
+version: 1
+
+# ---- 审核关卡（2026-10-14 用户决定：从 4 个压到 3 个）----
+# 依据：用户认为"创建与故事好就能保证后面质量"不成立（实践证明致命问题多在执行层），
+# 但原 B（剧本）与 C（分镜）之间的人工确认可以合并——中间那些自动校验与独立评审照跑，
+# 人只在"制作前"确认一次。所以现在是：
+#   A 创意提案（选案，真正的创意分岔点，保留）
+#   B 制作前确认（剧本＋分镜＋提示词＋参考资产一次性确认，合并了原 B 与 C）
+#   C 成片质检（看一遍片子，兜住字幕/崩形这类致命问题）
+review_gates:
+  - id: A
+    title: 创意提案
+    unlocks: 剧本、分镜与提示词（一直到"制作前确认"为止）
+  - id: B
+    title: 制作前确认
+    unlocks: 批量渲染（出参考图与 T8 出片）
+  - id: C
+    title: 成片质检
+    unlocks: 最终交付
+
+# 关卡状态：PENDING_HUMAN_REVIEW 未变成 APPROVED 之前，不得进入下一阶段。
+# 只允许这四个取值，避免"状态名随手写"导致程序判断不了。
+#   NOT_STARTED         还没走到这个关卡
+#   PENDING_HUMAN_REVIEW 已产出成果，等人看
+#   APPROVED            人已批准，可以进入下一阶段
+#   REJECTED            人已驳回，必须返工
+gate_states:
+  - NOT_STARTED
+  - PENDING_HUMAN_REVIEW
+  - APPROVED
+  - REJECTED
+initial_gate_state: PENDING_HUMAN_REVIEW
+
+# ---- 每部影片的目录约定 ----
+# 根目录取自 config/settings.yaml 的 paths.projects（本项目 = <项目根>\projects），
+# 因此这里只写"子目录名"，不写路径。
+film_layout:
+  root_key: paths.projects
+  state_file: state.json
+  subdirs:
+    - analysis      # 分析/取证结论（md，进 Git）
+    - prompts       # 逐镜提示词（txt，进 Git）
+    - materials     # 参考图等素材（体积大，不进 Git）
+    - segments      # 分段视频（体积大，不进 Git）
+    - final         # 成片（体积大，不进 Git）
+
+# ---- 生成能力限值（实测；见审计报告第 5 节）----
+generation:
+  target: t8bridge_9ref        # config/workflow_targets.yaml 里的工作流名
+  fps: 24
+  frames:
+    min: 124                   # 节点 136 length 的训练区间下界（≈5.2 秒）
+    max: 362                   # 上界（≈15.1 秒）；节点本身允许到 3600，但训练范围只到 362
+    step: 17                   # 帧数只能取 step*k + min_mod
+    min_mod: 5
+  duration_seconds:
+    min: 5.2
+    max: 15.1
+  ref_images_max: 9            # 节点 136 ref_images 的上限（COMFY_AUTOGROW_V3，max=9）
+  resolution:
+    width: 1280
+    height: 736
+    megapixels: 0.9            # 节点 115 ResolutionSelector；用户 2026-10-14 拍板
+
+# ---- 时长策略（用户 2026-10-14 明确）----
+# 结论：时长以"工作流能生成的合法值"为准，不再为了凑整秒去裁切成片。
+# 例：3 段 243 帧 = 30.375 秒 → 成片就是 30.38 秒，不裁成 30.00。
+duration_policy:
+  prefer_legal_duration: true   # 成片时长直接采用合法时长之和
+  nominal_seconds: 30           # 简报里的目标值只是"大约多少秒"
+  tolerance_seconds: 1.5        # 允许偏离目标值多少秒（30 ± 1.5）
+  trim_in_post: false           # 不做"为了对齐整秒而裁切"
+  note: 分段时长必须从 generation.frames 的合法取值里挑；成片时长 = 各段之和（保留两位小数）。
+
+# ---- 分段与节奏决策顺序（用户 2026-10-14 明确，硬性）----
+# 这是首版流程的根因所在：首版把"分段与帧数"放在创意阶段决定，
+# 而且只给了两个总和选项，等于让故事迁就平均时长。现在反过来了。
+pacing_policy:
+  order:
+    - "先根据剧本、戏剧节拍、场景变化和镜头运动决定【镜头边界】（哪里切、为什么在这里切）。"
+    - "再根据每个镜头的【叙事任务】分配时长（理想时长可以是任意秒数，不是合法帧数）。"
+    - "最后把理想时长【映射到工作流允许的合法帧数】。"
+    - "如果技术限制使理想分配无法实现，【优先调整节奏、镜头边界或生成策略】，而不是直接平均分段。"
+    - "只有当故事本身确实需要均匀节奏时，才采用等长分段。"
+  priority: 故事需要什么镜头，导演就设计什么镜头；工作流负责尽可能实现，而不是让故事迁就平均时长。
+  # 映射规则（理想时长 → 合法帧数），按顺序判定：
+  mapping_rules:
+    - "理想时长落在合法区间（5.17~15.08 秒）内：取【不小于理想值】的最近合法帧数（宁长勿短，短了会把动作切掉）；差值记进 duration_mapping_note 作为剪辑可用余量。"
+    - "理想时长超过 15.08 秒：【先改镜头设计】——把它拆成两个有真实剪辑点的镜头（景别／机位／视点变化），而不是硬切成两段连续镜头；确需一次连续长镜头时，才拆成两段生成并把接缝风险写进 risk_flags。"
+    - "理想时长不足 5.17 秒：三选一——① 与相邻镜头合并为一段（原本就不切则无影响）；② 生成到合法下限、剪辑时只取所需部分（动作在该时长内完成，不算盲目裁切）；③ 加一个镜内拍把时长填进合法区间。"
+    - "禁止为了对齐总时长而平均分段。"
+  equal_length_rule: 出现三段及以上且帧数完全相同，必须写出 equal_length_justification（故事为什么需要均匀节奏）；
+    写不出理由就是错误，校验会报警。
+
+# ---- 密钥来源 ----
+# ---- 独立评审的收敛判据（2026-10-15 加）----
+# 背景：本片（animal-heads-nap-02）剧本返修了 5 轮，每轮评审都能**再新找出 4~8 条**问题
+# （8→5→4→5），追"0 条"是无限循环、烧钱又延工。所以把"什么时候可以放行"写成判据，
+# 由程序在每个返修轮结束时给出结论；残余项照旧作为必修项带进下一阶段，并写进闸门备注。
+review_convergence:
+  max_revision_rounds: 2
+  fatal_threshold: 0        # 致命项必须为 0 才能放行
+  serious_threshold: 2      # 严重项允许留 ≤2 条（作为必修项带进下一阶段）
+  release_rule: "致命 = 0 且 严重 ≤ 2 时可以直接放行（残余项带进下一阶段）；否则再修一轮，最多 max_revision_rounds 轮，之后交人决定。"
+  note: "评审意见按严重度分档：致命必须清零；严重的允许少量滚存，但必须逐条写进闸门备注与阶段报告。"
+
+# 优先级：环境变量 > 本地 secrets 文件。两者都不进 Git。
+# 自检程序只报"有没有配置"，**不读取、不打印任何密钥值**。
+secrets:
+  env_var: DEEPSEEK_API_KEY
+  local_file: director_system/secrets/local.env

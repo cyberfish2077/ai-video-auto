@@ -141,6 +141,11 @@ def main() -> int:
         "warnings": result.warnings,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("合成记录：%s", record)
+    print()
+    print("下一步（建议必做）：核对成片里每一段是否就是台账里那一段——")
+    print(f"    .venv\\Scripts\\python.exe scripts\\verify_final_segments.py --project {args.project}")
+    print("    （2026-10-15 的事故：临时文件名撞名会让成片用错片段，而台账与合成记录都显示正确；"
+          "这个脚本按窗口比对画面，能当场抓出来。）")
     return 0
 
 

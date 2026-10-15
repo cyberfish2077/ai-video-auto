@@ -123,6 +123,28 @@ class TaskRunnerTest(unittest.TestCase):
             logger=self.log,
         )
 
+    def fingerprint_for(self, values: dict) -> str:
+        """按任务管理器的方式算指纹（含"登记表实际改写到的节点映射"）。"""
+        target_cfg = {"overrides": {"prompt": {"node": 1, "input": "value"}}}
+        return generate.segment_fingerprint(
+            self.workflow_file, values,
+            overrides=generate.build_overrides(target_cfg, values))
+
+    def test_registry_mapping_changes_fingerprint(self) -> None:
+        """登记表改写点变了（例如键名从错的 text 改回 prompt），指纹必须跟着变。
+
+        2026-10-13 实测踩过：TTS 登记表键名写错 → 台词没进模型 → 产物是示例台词。
+        若指纹不含映射，修好登记表后会因为"指纹命中"而复用回那份错产物。
+        """
+        values = {"target": "t2v_test", "prompt": "同一段提示词", "seed": 7}
+        wrong = generate.build_overrides(
+            {"overrides": {"text": {"node": 38, "input": "text"}}}, values)
+        right = generate.build_overrides(
+            {"overrides": {"prompt": {"node": 38, "input": "text"}}}, values)
+        self.assertNotEqual(
+            generate.segment_fingerprint(self.workflow_file, values, overrides=wrong),
+            generate.segment_fingerprint(self.workflow_file, values, overrides=right))
+
     # ---------------- 正常成功 ----------------
 
     def test_success_marks_done_archives_and_indexes(self) -> None:
@@ -182,12 +204,31 @@ class TaskRunnerTest(unittest.TestCase):
 
     # ---------------- 去重 ----------------
 
+    def test_only_filter_keeps_other_segments_in_ledger(self) -> None:
+        """only= 只影响"这次跑哪些"，绝不能把台账里别的片段抹掉。
+
+        2026-10-13 实测踩过：run --id 过滤后项目被存回台账，
+        72 段的台账只剩 7 段、57 段的只剩 6 段，且不可逆。
+        """
+        project = self.make_project()
+        project.segments.append(tasks.Segment(id="seg-02", prompt="第二段", seed=43))
+        self.store.save(project)
+        runner = self.make_runner(FakeClient())
+        runner.run(project, max_attempts=1, retry_backoff=0.0, timeout_seconds=10,
+                   only=["seg-02"])
+        reloaded = self.store.load()
+        self.assertEqual([seg.id for seg in reloaded.segments], ["seg-01", "seg-02"],
+                         "台账被 only 过滤改写了")
+        self.assertEqual(reloaded.segments[0].status, tasks.STATUS_PENDING,
+                         "没被选中的片段应保持原状")
+        self.assertEqual(reloaded.segments[1].status, tasks.STATUS_DONE)
+
     def test_reuse_skips_generation(self) -> None:
         project = self.make_project()
         segment = project.segments[0]
         values = {"target": "t2v_test", "prompt": segment.prompt, "duration_seconds": 5,
                   "width": 960, "height": 544, "seed": 42}
-        fingerprint = generate.segment_fingerprint(self.workflow_file, values)
+        fingerprint = self.fingerprint_for(values)
         existing = self.archive_root / "old_result.mp4"
         existing.parent.mkdir(parents=True, exist_ok=True)
         existing.write_bytes(b"old")
@@ -206,7 +247,7 @@ class TaskRunnerTest(unittest.TestCase):
         segment = project.segments[0]
         values = {"target": "t2v_test", "prompt": segment.prompt, "duration_seconds": 5,
                   "width": 960, "height": 544, "seed": 42}
-        fingerprint = generate.segment_fingerprint(self.workflow_file, values)
+        fingerprint = self.fingerprint_for(values)
         existing = self.archive_root / "old_result.mp4"
         existing.parent.mkdir(parents=True, exist_ok=True)
         existing.write_bytes(b"old")

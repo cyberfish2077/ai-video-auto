@@ -14,6 +14,20 @@ FFmpeg 合成带交叉溶解的成片 → 字幕体检 → 中文制作报告。
 
 它同时是一个 **Codex skill**：仓库根目录的 `SKILL.md` 让 Codex 能直接接管这套流水线。
 
+## 三条路线（2026-10 起）
+
+同一套执行层（ComfyUI 出图出片 + FFmpeg 合成 + 交付前核对），入口按"你要什么"分三条：
+
+| 路线 | 入口 | 适合 | 人工确认 |
+| --- | --- | --- | --- |
+| **快速线** | `scripts\make_video.py`（或双击 `开始制作.cmd`） | 手里有讲稿/一个主题，只想把它变成视频，一步到底 | 零 |
+| **快速出片**（对 Codex 说「快速出片」或「无审核」） | `director_system\scripts\make_film_fast.py` | 只给主题，但要**剧本 / 分镜 / 逐镜六段式提示词 / 渲染计划**，不要多轮评审 | 零 |
+| **严格审核导演系统**（说「导演系统」） | `director_system\scripts\make_ideas.py → make_story.py → make_storyboard.py → make_prompts.py` | 想先看 5 个故事方案、逐层评审、逐道闸门批准 | 3 道闸门（选案 / 制作前确认 / 成片质检） |
+
+三条路线共用同一份"合法帧数、参考图槽位、六段式提示词模板、交付前核对"的实现；
+严格版与快速出片的产物各自带后缀（`_fast`），互不覆盖。
+命令细节见 `references/入口指引-三条路线怎么选.md`。
+
 ## 它解决什么问题
 
 长视频不是"把一条提示词拉长"能做的，真正麻烦的是工程问题：
@@ -66,8 +80,15 @@ Windows 用户也可以直接双击 `开始制作.cmd`，按提示回答四个�
 │   ├── compose_final.py        FFmpeg 合成（交叉溶解 + 音频淡化，默认不覆盖成片）
 │   ├── check_segment_text.py   字幕体检（只报告，不改画面）
 │   └── project_report.py       中文制作报告
+├── director_system/      导演系统（严格审核 + 快速出片两条路线的核心）
+│   ├── scripts/          make_ideas / make_story / make_storyboard / make_prompts（严格版四步）
+│   │                     make_film_fast（快速出片：主题 → 剧本/分镜/提示词/渲染计划）
+│   │                     next_step（忘了下一步）/ review_gate（闸门状态与批准）
+│   ├── schemas/          各阶段产物的 JSON Schema（机械校验用）
+│   ├── prompts/          系统提示词（编剧 / 分镜 / 提示词编译 / 独立评审）
+│   └── config/           director.yaml（时长、节奏、评审收敛判据等硬性规则）
 ├── tests/                49 个单元测试（不联网、不占显卡）
-├── references/           给 Codex 读的详细文档（安装 / 手册 / 工作流接入 / 提示词规范 / 实测经验）
+├── references/           给 Codex 读的详细文档（安装 / 手册 / 三条路线入口 / 工作流接入 / 提示词规范 / 实测经验）
 ├── workflows/           随包发布的两份工作流：出片（T8bridge 9 图多参考）+ 出图（Qwen-Image 2.1）
 └── data/briefs/          讲稿放这里（示例讲稿 + 一条真实讲稿）
 ```

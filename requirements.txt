@@ -7,3 +7,4 @@
 PyYAML>=6.0.2          # 读取 config/settings.yaml
 python-dotenv>=1.0.1   # 读取项目根目录的 .env
 requests>=2.32.3       # 调用 DeepSeek API 与 ComfyUI API
+jsonschema>=4.23.0     # 校验 DeepSeek 输出的结构化 JSON（导演系统的剧本/分镜/提示词）
